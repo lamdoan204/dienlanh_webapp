@@ -1,0 +1,6 @@
+{
+  "name": "HVAC Masters",
+  "description": "Ứng dụng dịch vụ sửa chữa, bảo trì và lắp đặt HVAC & Điện lạnh chuyên nghiệp",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

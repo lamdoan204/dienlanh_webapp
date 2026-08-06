@@ -1,0 +1,57 @@
+import React from 'react';
+import { ActiveTab } from '../types';
+import { User } from '@supabase/supabase-js';
+
+interface MobileBottomNavProps {
+  activeTab: ActiveTab;
+  setActiveTab: (tab: ActiveTab) => void;
+  bookingCount: number;
+  user?: User | null;
+}
+
+export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
+  activeTab,
+  setActiveTab,
+  bookingCount,
+  user,
+}) => {
+  const tabs = [
+    { id: 'home' as ActiveTab, label: 'Trang chủ', icon: 'home' },
+    { id: 'pricing' as ActiveTab, label: 'Bảng giá', icon: 'local_offer' },
+    { id: 'booking' as ActiveTab, label: 'Đặt lịch', icon: 'calendar_month' },
+    { id: 'reviews' as ActiveTab, label: 'Đánh giá', icon: 'rate_review' },
+    ...(user ? [{ id: 'history' as ActiveTab, label: 'Lịch sử', icon: 'history' }] : []),
+    { id: (user ? 'account' : 'auth') as ActiveTab, label: user ? 'Cá nhân' : 'Đăng nhập', icon: user ? 'person' : 'login' },
+  ];
+
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex h-[68px] items-center justify-around border-t border-[#c1c7d3]/40 bg-white/95 backdrop-blur-md px-1 pb-safe shadow-[0px_-4px_20px_rgba(0,0,0,0.06)]">
+      {tabs.map((tab) => {
+        const isActive = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex flex-col items-center justify-center w-full h-full relative cursor-pointer transition-colors ${
+              isActive ? 'text-[#005396] font-bold' : 'text-[#414751] hover:text-[#005396]'
+            }`}
+          >
+            <span
+              className={`material-symbols-outlined text-[24px] ${
+                isActive ? 'fill-1' : ''
+              }`}
+            >
+              {tab.icon}
+            </span>
+            <span className="text-[10px] font-medium mt-0.5 whitespace-nowrap">{tab.label}</span>
+            {tab.id === 'history' && bookingCount > 0 && (
+              <span className="absolute top-1 right-2 bg-[#ff8a00] text-white text-[9px] px-1 rounded-full font-bold min-w-[14px] text-center">
+                {bookingCount}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </nav>
+  );
+};
