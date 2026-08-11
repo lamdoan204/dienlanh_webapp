@@ -1,24 +1,21 @@
 import React from 'react';
-import { ActiveTab } from '../types';
-import { User } from '@supabase/supabase-js';
+import { ActiveTab, UserProfile } from '../types';
+import { Logo } from './Logo';
 
 interface FooterProps {
   setActiveTab: (tab: ActiveTab) => void;
-  user?: User | null;
+  userProfile?: UserProfile | null;
 }
 
-export const Footer: React.FC<FooterProps> = ({ setActiveTab, user }) => {
+export const Footer: React.FC<FooterProps> = ({ setActiveTab, userProfile }) => {
   return (
     <footer className="w-full py-12 bg-[#ffffff] border-t border-[#c1c7d3]/50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 text-center sm:text-left">
         {/* Col 1 */}
         <div className="col-span-1 sm:col-span-2 lg:col-span-1 flex flex-col gap-3 items-center sm:items-start">
-          <div className="font-bold text-2xl text-[#005396] flex items-center gap-2">
-            <span className="material-symbols-outlined fill-1 text-3xl">ac_unit</span>
-            <span>HVAC Masters</span>
-          </div>
+          <Logo size="md" />
           <p className="text-xs text-[#414751] max-w-xs">
-            © 2024 HVAC Masters. Trải nghiệm sự tin cậy trong từng hơi thở. Dịch vụ kỹ thuật điều hòa &amp; điện lạnh chuẩn hóa cao cấp.
+            © 2024 Điện lạnh Công Thương. Trải nghiệm sự tin cậy trong từng hơi thở. Dịch vụ kỹ thuật điều hòa &amp; điện lạnh chuẩn hóa cao cấp.
           </p>
           <div className="flex gap-3 mt-1">
             <a href="#" className="text-[#414751] hover:text-[#005396] p-2 bg-[#f1f3ff] rounded-full transition-colors" title="Bảo hành">
@@ -68,12 +65,12 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab, user }) => {
           >
             Đánh giá khách hàng
           </button>
-          {user && (
+          {userProfile && (
             <button
               onClick={() => setActiveTab('history')}
               className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all text-center sm:text-left cursor-pointer"
             >
-              Lịch sử dịch vụ
+              Lịch sử đặt lịch
             </button>
           )}
           <button
@@ -89,7 +86,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab, user }) => {
           <h4 className="font-semibold text-sm text-[#141b2b] uppercase tracking-wider mb-1">Liên hệ</h4>
           <div className="flex items-center gap-2 text-xs text-[#414751] justify-center sm:justify-start">
             <span className="material-symbols-outlined text-[18px] text-[#005396]">location_on</span>
-            <span>123 Đường Khí Hậu, TP. Mát Lạnh</span>
+            <span>123 Đường Khí Hậu, TP. Hồ Chí Minh</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-[#414751] justify-center sm:justify-start">
             <span className="material-symbols-outlined text-[18px] text-[#005396]">mail</span>

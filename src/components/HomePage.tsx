@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { ActiveTab, DeviceType, ServicePackageType } from '../types';
+import { ActiveTab, DeviceType, ServicePackageType, AdminService } from '../types';
 import { HERO_IMAGE_URL } from '../data/mockData';
 
 interface HomePageProps {
   setActiveTab: (tab: ActiveTab) => void;
-  onSelectBookingPreset?: (device: DeviceType, service: ServicePackageType) => void;
+  onSelectBookingPreset?: (preset: AdminService | { device: DeviceType; service: ServicePackageType }) => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({ setActiveTab, onSelectBookingPreset }) => {
@@ -19,7 +19,7 @@ export const HomePage: React.FC<HomePageProps> = ({ setActiveTab, onSelectBookin
 
   const handleServiceClick = (device: DeviceType, service: ServicePackageType) => {
     if (onSelectBookingPreset) {
-      onSelectBookingPreset(device, service);
+      onSelectBookingPreset({ device, service });
     }
     setActiveTab('booking');
   };

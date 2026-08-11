@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CustomerReview, ActiveTab } from '../types';
-import { fetchReviewsFromSupabase } from '../lib/supabase';
+import { commonService } from '../services/commonService';
 
 interface ReviewsPageProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -10,9 +10,10 @@ export const ReviewsPage: React.FC<ReviewsPageProps> = ({ setActiveTab }) => {
   const [reviews, setReviews] = useState<CustomerReview[]>([]);
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [isWriteModalOpen, setIsWriteModalOpen] = useState(false);
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchReviewsFromSupabase().then(data => {
+    commonService.fetchReviews().then(data => {
       if (data) setReviews(data);
     });
   }, []);
@@ -22,7 +23,7 @@ export const ReviewsPage: React.FC<ReviewsPageProps> = ({ setActiveTab }) => {
   const [newServiceType, setNewServiceType] = useState('Vệ sinh máy lạnh');
   const [newComment, setNewComment] = useState('');
 
-  const handleAddReview = (e: React.FormEvent) => {
+  const handleAddReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAuthor.trim() || !newComment.trim()) return;
 
@@ -36,10 +37,17 @@ export const ReviewsPage: React.FC<ReviewsPageProps> = ({ setActiveTab }) => {
       verified: true,
     };
 
+    const res = await commonService.insertReview(newRev, newAuthor);
+    if (!res.success) {
+      setReviewNotice(res.message || 'Chỉ những khách hàng đã hoàn thành đơn hàng mới có thể đánh giá.');
+      return;
+    }
+
     setReviews([newRev, ...reviews]);
     setIsWriteModalOpen(false);
     setNewAuthor('');
     setNewComment('');
+    setReviewNotice(null);
   };
 
   const filteredReviews = reviews.filter((r) => {
@@ -59,7 +67,7 @@ export const ReviewsPage: React.FC<ReviewsPageProps> = ({ setActiveTab }) => {
           </span>
           <h1 className="text-3xl sm:text-4xl font-bold text-[#141b2b]">Đánh Giá Khách Hàng</h1>
           <p className="text-sm text-[#414751] mt-1">
-            Xem ý kiến thực tế từ hàng nghìn khách hàng đã trải nghiệm dịch vụ của HVAC Masters.
+            Xem ý kiến thực tế từ hàng nghìn khách hàng đã trải nghiệm dịch vụ của Điện lạnh Công Thương.
           </p>
         </div>
 
@@ -208,6 +216,12 @@ export const ReviewsPage: React.FC<ReviewsPageProps> = ({ setActiveTab }) => {
             </div>
 
             <form onSubmit={handleAddReview} className="space-y-4">
+              {reviewNotice && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
+                  <span className="material-symbols-outlined text-sm shrink-0">info</span>
+                  <span>{reviewNotice}</span>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-bold text-[#414751] block mb-1">Họ và tên</label>
                 <input

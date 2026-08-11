@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveTab, BookingRecord, DeviceType, ServicePackageType } from './types';
+import { ActiveTab, BookingRecord, DeviceType, ServicePackageType, UserProfile, AdminService } from './types';
 import { Header } from './components/Header';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { Footer } from './components/Footer';
@@ -12,88 +12,89 @@ import { AccountPage } from './components/AccountPage';
 import { AuthPage } from './components/AuthPage';
 import { OnboardingPage } from './components/OnboardingPage';
 import { AdminDashboard } from './components/AdminDashboard';
-import {
-  isSupabaseConfigured,
-  fetchBookingsFromSupabase,
-  insertBookingToSupabase,
-  updateBookingStatusInSupabase,
-  supabase
-} from './lib/supabase';
-import { User } from '@supabase/supabase-js';
+import { authService } from './services/authService';
+import { customerService } from './services/customerService';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
-  const [supabaseConnected, setSupabaseConnected] = useState<boolean>(isSupabaseConfigured());
-  const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(() => authService.getStoredProfile());
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
 
-  const [bookingPreset, setBookingPreset] = useState<{
-    device: DeviceType;
-    service: ServicePackageType;
-  } | undefined>(undefined);
+  const [bookingPreset, setBookingPreset] = useState<AdminService | { device: DeviceType; service: ServicePackageType } | undefined>(undefined);
 
-  // Load from Supabase on mount if configured
+  // Load customer booking history when logged in or profile changes
   useEffect(() => {
-    if (isSupabaseConfigured() && supabase) {
-      setSupabaseConnected(true);
-      
-      // Get initial session
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setUser(session?.user ?? null);
-      });
-
-      // Listen for auth changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setUser(session?.user ?? null);
-      });
-
-      fetchBookingsFromSupabase().then((data) => {
-        if (data) {
+    if (userProfile) {
+      customerService.fetchCustomerBookings(userProfile.phone_number).then((data) => {
+        if (data && data.length > 0) {
           setBookings(data);
         }
       });
-
-      return () => {
-        subscription.unsubscribe();
-      };
     }
-  }, []);
+  }, [userProfile]);
 
   useEffect(() => {
     localStorage.setItem('hvac_masters_bookings', JSON.stringify(bookings));
   }, [bookings]);
 
-  // Handle new booking creation
-  const handleBookingSubmit = async (newBooking: BookingRecord) => {
-    setBookings((prev) => [newBooking, ...prev]);
+  const handleLoginSuccess = (profile: UserProfile) => {
+    setUserProfile(profile);
+  };
 
-    if (isSupabaseConfigured()) {
-      await insertBookingToSupabase(newBooking);
-    }
+  const handleLogout = () => {
+    setUserProfile(null);
+  };
+
+  // Handle new booking creation
+  const handleBookingSubmit = async (
+    newBooking: BookingRecord,
+    extra?: { serviceId?: number; timeSlotId?: number; customerId?: number }
+  ) => {
+    setBookings((prev) => [newBooking, ...prev]);
+    await customerService.createBooking(newBooking, extra);
   };
 
   // Handle booking cancellation
   const handleCancelBooking = async (bookingId: string) => {
+    const targetBooking = bookings.find((b) => b.id === bookingId);
+    if (
+      targetBooking &&
+      (targetBooking.status === 'verified' ||
+        targetBooking.status === 'technician_assigned' ||
+        targetBooking.status === 'in_progress' ||
+        targetBooking.status === 'completed' ||
+        targetBooking.status === 'cancelled')
+    ) {
+      return;
+    }
+
+    const confirmCancel = window.confirm('Bạn có chắc chắn muốn hủy đơn hàng này không?');
+    if (!confirmCancel) return;
+
     setBookings((prev) =>
       prev.map((b) => (b.id === bookingId ? { ...b, status: 'cancelled' } : b))
     );
-
-    if (isSupabaseConfigured()) {
-      await updateBookingStatusInSupabase(bookingId, 'cancelled');
-    }
+    await customerService.cancelBooking(bookingId);
   };
 
-  const handleSelectBookingPreset = (device: DeviceType, service: ServicePackageType) => {
-    setBookingPreset({ device, service });
+  const handleSelectBookingPreset = (preset: AdminService | { device: DeviceType; service: ServicePackageType }) => {
+    setBookingPreset(preset);
   };
+
+  // Only count active orders that are not completed or cancelled
+  const activeBookingCount = bookings.filter(
+    (b) => b.status !== 'completed' && b.status !== 'cancelled'
+  ).length;
 
   if (activeTab === 'admin') {
     return (
       <AdminDashboard
         setActiveTab={setActiveTab}
-        user={user}
+        user={null}
+        userProfile={userProfile}
         bookings={bookings}
         onUpdateBookings={setBookings}
+        onLogout={handleLogout}
       />
     );
   }
@@ -104,11 +105,10 @@ export default function App() {
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        bookingCount={bookings.length}
-        user={user}
+        bookingCount={activeBookingCount}
+        userProfile={userProfile}
       />
 
-      {/* Connection Indicator Bar */}
       {/* Main Content Area */}
       <main className="flex-grow w-full">
         {activeTab === 'home' && (
@@ -128,6 +128,7 @@ export default function App() {
         {activeTab === 'booking' && (
           <BookingPage
             initialPreset={bookingPreset}
+            userProfile={userProfile}
             onBookingSubmit={handleBookingSubmit}
             setActiveTab={setActiveTab}
           />
@@ -144,25 +145,41 @@ export default function App() {
         )}
 
         {activeTab === 'account' && (
-          <AccountPage setActiveTab={setActiveTab} bookingCount={bookings.length} user={user} />
+          <AccountPage
+            setActiveTab={setActiveTab}
+            bookingCount={activeBookingCount}
+            userProfile={userProfile}
+            onUpdateProfile={setUserProfile}
+            onLogout={handleLogout}
+          />
         )}
 
-        {activeTab === 'auth' && <AuthPage setActiveTab={setActiveTab} />}
+        {activeTab === 'auth' && (
+          <AuthPage
+            setActiveTab={setActiveTab}
+            onLoginSuccess={handleLoginSuccess}
+          />
+        )}
 
-        {activeTab === 'onboarding' && <OnboardingPage setActiveTab={setActiveTab} />}
+        {activeTab === 'onboarding' && (
+          <OnboardingPage
+            setActiveTab={setActiveTab}
+            userProfile={userProfile}
+            onUpdateProfile={setUserProfile}
+          />
+        )}
       </main>
 
       {/* Footer */}
-      <Footer setActiveTab={setActiveTab} user={user} />
+      <Footer setActiveTab={setActiveTab} userProfile={userProfile} />
 
       {/* Mobile Bottom Navigation */}
       <MobileBottomNav
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        bookingCount={bookings.length}
-        user={user}
+        bookingCount={activeBookingCount}
+        userProfile={userProfile}
       />
     </div>
   );
 }
-

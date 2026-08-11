@@ -1,230 +1,662 @@
-import React, { useState } from 'react';
-import { ActiveTab } from '../types';
-import { supabase } from '../lib/supabase';
-import { User } from '@supabase/supabase-js';
+import React, { useState, useEffect } from 'react';
+import { ActiveTab, UserProfile, AddressRecord } from '../types';
+import { authService } from '../services/authService';
+import { addressService } from '../services/addressService';
 
 interface AccountPageProps {
   setActiveTab: (tab: ActiveTab) => void;
   bookingCount: number;
-  user?: User | null;
+  userProfile?: UserProfile | null;
+  onUpdateProfile?: (profile: UserProfile) => void;
+  onLogout?: () => void;
 }
 
-export const AccountPage: React.FC<AccountPageProps> = ({ setActiveTab, bookingCount, user }) => {
-  const [profile, setProfile] = useState({
-    name: 'Nguyễn Văn A',
-    phone: '090 123 4567',
-    email: user?.email || 'nguyenvana@example.com',
-    address: '123 Đường Khí Hậu, Thành phố Mát Mẻ',
+export const AccountPage: React.FC<AccountPageProps> = ({
+  setActiveTab,
+  bookingCount,
+  userProfile,
+  onUpdateProfile,
+  onLogout
+}) => {
+  // Personal profile form state
+  const [profileForm, setProfileForm] = useState({
+    lastName: userProfile?.last_name || 'Nguyễn Văn',
+    firstName: userProfile?.first_name || 'A',
+    phone: userProfile?.phone_number || '0901234567',
+    email: userProfile?.email || 'nguyenvana@example.com',
   });
 
-  const [isEditing, setIsEditing] = useState(false);
-  const [savedMessage, setSavedMessage] = useState(false);
+  // Sync state if userProfile prop changes
+  useEffect(() => {
+    if (userProfile) {
+      setProfileForm({
+        lastName: userProfile.last_name || '',
+        firstName: userProfile.first_name || '',
+        phone: userProfile.phone_number || '',
+        email: userProfile.email || '',
+      });
+    }
+  }, [userProfile]);
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsEditing(false);
-    setSavedMessage(true);
-    setTimeout(() => setSavedMessage(false), 3000);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Address list state
+  const [addresses, setAddresses] = useState<AddressRecord[]>([]);
+  const [isLoadingAddresses, setIsLoadingAddresses] = useState(true);
+
+  // Address form modal / inline state
+  const [isAddressFormOpen, setIsAddressFormOpen] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState<number | null>(null);
+  const [addressForm, setAddressForm] = useState({
+    province: '',
+    ward: '',
+    street: '',
+    houseNumber: '',
+    fullAddress: '',
+    note: '',
+  });
+
+  // Fetch addresses on mount or when user Profile changes
+  useEffect(() => {
+    let isMounted = true;
+    const userId = userProfile?.id || 1;
+    
+    setIsLoadingAddresses(true);
+    addressService.getUserAddresses(userId).then((data) => {
+      if (isMounted) {
+        setAddresses(data || []);
+        setIsLoadingAddresses(false);
+      }
+    }).catch(() => {
+      if (isMounted) setIsLoadingAddresses(false);
+    });
+
+    return () => { isMounted = false; };
+  }, [userProfile?.id]);
+
+  // Handle live calculation of fullAddress when component address sub-fields change
+  const handleAddressSubFieldChange = (field: 'province' | 'ward' | 'street' | 'houseNumber', value: string) => {
+    setAddressForm((prev) => {
+      const updated = { ...prev, [field]: value };
+      
+      // Auto build full address string
+      const parts = [
+        updated.houseNumber.trim() ? `Số ${updated.houseNumber.trim()}` : '',
+        updated.street.trim(),
+        updated.ward.trim(),
+        updated.province.trim(),
+      ].filter(Boolean);
+
+      return {
+        ...updated,
+        fullAddress: parts.join(', '),
+      };
+    });
   };
 
-  const handleSignOut = async () => {
-    if (supabase) {
-      await supabase.auth.signOut();
+  // Save personal information
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaveStatus(null);
+
+    const updatedProfile: UserProfile = {
+      id: userProfile?.id || Date.now(),
+      first_name: profileForm.firstName.trim(),
+      last_name: profileForm.lastName.trim(),
+      email: profileForm.email.trim(),
+      phone_number: profileForm.phone.trim(),
+      role: userProfile?.role || 'customer',
+      avatar: userProfile?.avatar || null,
+      birth_year: userProfile?.birth_year || null,
+    };
+
+    const res = await authService.updateUserProfile(updatedProfile);
+    if (res.success) {
+      if (onUpdateProfile) {
+        onUpdateProfile(updatedProfile);
+      }
+      setIsEditingProfile(false);
+      setSaveStatus({ type: 'success', message: 'Đã cập nhật thông tin cá nhân thành công!' });
+      setTimeout(() => setSaveStatus(null), 4000);
+    } else {
+      setSaveStatus({ type: 'error', message: res.message || 'Lỗi khi lưu thông tin cá nhân.' });
     }
+  };
+
+  // Open form for adding new address
+  const handleOpenAddAddress = () => {
+    setEditingAddressId(null);
+    setAddressForm({
+      province: 'TP. Hồ Chí Minh',
+      ward: '',
+      street: '',
+      houseNumber: '',
+      fullAddress: '',
+      note: '',
+    });
+    setIsAddressFormOpen(true);
+  };
+
+  // Open form for editing existing address
+  const handleOpenEditAddress = (addr: AddressRecord) => {
+    setEditingAddressId(addr.id || null);
+    setAddressForm({
+      province: addr.province || '',
+      ward: addr.ward || '',
+      street: addr.street || '',
+      houseNumber: addr.house_number || '',
+      fullAddress: addr.full_address || '',
+      note: addr.note || '',
+    });
+    setIsAddressFormOpen(true);
+  };
+
+  // Delete an address
+  const handleDeleteAddress = async (addressId?: number) => {
+    if (!addressId) return;
+    if (!window.confirm('Bạn có chắc chắn muốn xóa địa chỉ này khỏi tài khoản?')) return;
+
+    await addressService.deleteAddress(addressId);
+    setAddresses((prev) => prev.filter((a) => a.id !== addressId));
+    setSaveStatus({ type: 'success', message: 'Đã xóa địa chỉ thành công.' });
+    setTimeout(() => setSaveStatus(null), 3000);
+  };
+
+  // Save address (Add or Edit)
+  const handleSaveAddress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const userId = userProfile?.id || 1;
+
+    const payload = {
+      province: addressForm.province.trim(),
+      ward: addressForm.ward.trim(),
+      street: addressForm.street.trim() || null,
+      house_number: addressForm.houseNumber.trim() || null,
+      full_address: addressForm.fullAddress.trim() || `${addressForm.houseNumber} ${addressForm.street}, ${addressForm.ward}, ${addressForm.province}`,
+      note: addressForm.note.trim() || null,
+    };
+
+    if (editingAddressId) {
+      // Update existing address
+      const res = await addressService.updateAddress(editingAddressId, payload);
+      if (res.success) {
+        setAddresses((prev) =>
+          prev.map((a) => (a.id === editingAddressId ? { ...a, ...payload } : a))
+        );
+        setIsAddressFormOpen(false);
+        setSaveStatus({ type: 'success', message: 'Cập nhật địa chỉ thành công!' });
+        setTimeout(() => setSaveStatus(null), 3000);
+      }
+    } else {
+      // Add new address
+      const res = await addressService.addAddress({
+        user_id: userId,
+        ...payload,
+      });
+
+      if (res.success) {
+        const newRecord: AddressRecord = res.data || {
+          id: Date.now(),
+          user_id: userId,
+          ...payload,
+        };
+        setAddresses((prev) => [newRecord, ...prev]);
+        setIsAddressFormOpen(false);
+        setSaveStatus({ type: 'success', message: 'Thêm địa chỉ mới thành công!' });
+        setTimeout(() => setSaveStatus(null), 3000);
+      }
+    }
+  };
+
+  const handleSignOut = () => {
+    authService.logout();
+    if (onLogout) onLogout();
     setActiveTab('home');
   };
 
+  const fullName = `${profileForm.lastName} ${profileForm.firstName}`.trim() || 'Khách hàng';
+
   return (
-    <div className="pt-24 lg:pt-28 pb-16 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-20 lg:pt-24 pb-16 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Title Header */}
-      <div className="mb-8 border-b border-[#c1c7d3]/30 pb-4 flex justify-between items-center">
+      <div className="mb-6 border-b border-[#c1c7d3]/30 pb-4 flex justify-between items-center">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#141b2b]">Tài Khoản Cá Nhân</h1>
-          <p className="text-sm text-[#414751] mt-1">
-            Quản lý thông tin liên hệ, địa chỉ dịch vụ mặc định và ưu đãi thành viên.
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#141b2b] tracking-tight">Tài Khoản Cá Nhân</h1>
+          <p className="text-xs sm:text-sm text-[#414751] mt-1 font-medium">
+            Quản lý thông tin hồ sơ cá nhân và danh sách địa chỉ nhận dịch vụ kỹ thuật.
           </p>
         </div>
-        {user && (
+        {userProfile && (
           <button
             onClick={handleSignOut}
-            className="hidden sm:flex text-[#ba1a1a] hover:bg-[#ffdad6] font-bold px-4 py-2 rounded-xl transition-colors text-sm items-center gap-1 cursor-pointer"
+            className="hidden sm:flex text-[#ba1a1a] hover:bg-[#ffdad6] font-bold px-4 py-2 rounded-xl transition-colors text-xs sm:text-sm items-center gap-1.5 cursor-pointer border border-[#ba1a1a]/20"
           >
-            <span className="material-symbols-outlined text-[20px]">logout</span>
-            Đăng xuất
+            <span className="material-symbols-outlined text-[18px]">logout</span>
+            <span>Đăng xuất</span>
           </button>
         )}
       </div>
 
-      {savedMessage && (
-        <div className="mb-6 p-4 bg-[#e1f8eb] border border-[#10b981]/30 text-[#10b981] rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2">
-          <span className="material-symbols-outlined text-lg">check_circle</span>
-          <span>Đã cập nhật thông tin cá nhân thành công!</span>
+      {/* Global Toast Status Banner */}
+      {saveStatus && (
+        <div
+          className={`mb-6 p-4 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 border shadow-xs transition-all ${
+            saveStatus.type === 'success'
+              ? 'bg-[#e1f8eb] border-[#10b981]/30 text-[#047857]'
+              : 'bg-[#ffdad6] border-[#ba1a1a]/30 text-[#ba1a1a]'
+          }`}
+        >
+          <span className="material-symbols-outlined text-lg">
+            {saveStatus.type === 'success' ? 'check_circle' : 'error'}
+          </span>
+          <span>{saveStatus.message}</span>
         </div>
       )}
 
-      {/* Admin Quick Portal Access Card */}
-      <div className="bg-gradient-to-r from-[#005396] to-[#003868] text-white rounded-2xl p-6 shadow-md mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-3xl">admin_panel_settings</span>
-          </div>
-          <div>
-            <h3 className="text-lg font-bold">Giao diện Quản trị viên (Admin)</h3>
-            <p className="text-xs text-white/80 mt-0.5">Quản lý đơn dịch vụ, phân công kỹ thuật viên, danh mục và xem báo cáo tài chính.</p>
-          </div>
-        </div>
-        <button
-          onClick={() => setActiveTab('admin')}
-          className="bg-[#ff8a00] hover:bg-[#914c00] text-white font-bold px-6 py-2.5 rounded-xl shadow transition-all cursor-pointer whitespace-nowrap min-h-[44px]"
-        >
-          Truy cập Admin &rarr;
-        </button>
-      </div>
-
-      {/* Profile Overview Card */}
-      <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-[#c1c7d3]/30 mb-8 flex flex-col sm:flex-row items-center gap-6">
-        <div className="w-20 h-20 bg-[#005396] text-white rounded-full flex items-center justify-center font-bold text-3xl shadow-md">
-          {profile.name.charAt(0)}
-        </div>
-
-        <div className="flex-grow text-center sm:text-left space-y-1">
-          <h2 className="text-xl font-bold text-[#141b2b]">{profile.name}</h2>
-          <p className="text-xs sm:text-sm text-[#414751]">{profile.email} • {profile.phone}</p>
-          <div className="inline-flex items-center gap-1 bg-[#ffdcc4] text-[#914c00] text-xs font-bold px-3 py-1 rounded-full mt-2">
-            <span className="material-symbols-outlined text-sm">stars</span>
-            <span>Thành viên Thân Thiết HVAC (250 Điểm)</span>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setIsEditing(!isEditing)}
-          className="bg-[#e9edff] text-[#005396] hover:bg-[#005396] hover:text-white font-bold px-5 py-2.5 rounded-xl transition-colors text-xs sm:text-sm cursor-pointer whitespace-nowrap min-h-[44px]"
-        >
-          {isEditing ? 'Hủy sửa' : 'Chỉnh sửa'}
-        </button>
-      </div>
-
-      {/* Edit Form or Readonly View */}
-      {isEditing ? (
-        <form onSubmit={handleSave} className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-[#c1c7d3]/30 space-y-4 mb-8">
-          <h3 className="text-lg font-bold text-[#141b2b] mb-4 pb-2 border-b border-[#c1c7d3]/30">
-            Cập nhật thông tin
-          </h3>
-
-          <div>
-            <label className="text-xs font-bold text-[#414751] block mb-1">Họ và tên</label>
-            <input
-              type="text"
-              required
-              value={profile.name}
-              onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-              className="w-full bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl px-4 py-2.5 text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-[#414751] block mb-1">Số điện thoại</label>
-              <input
-                type="tel"
-                required
-                value={profile.phone}
-                onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-                className="w-full bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl px-4 py-2.5 text-sm"
-              />
+      {/* Admin Quick Access Banner */}
+      {userProfile?.role === 'admin' && (
+        <div className="bg-gradient-to-r from-[#005396] to-[#003868] text-white rounded-2xl p-5 shadow-md mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 bg-white/20 rounded-full flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-2xl">admin_panel_settings</span>
             </div>
-
             <div>
-              <label className="text-xs font-bold text-[#414751] block mb-1">Email</label>
-              <input
-                type="email"
-                required
-                value={profile.email}
-                onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                className="w-full bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl px-4 py-2.5 text-sm"
-              />
+              <h3 className="text-base font-extrabold">Bảng Quản Trị Hệ Thống (Admin)</h3>
+              <p className="text-xs text-white/80 mt-0.5">Quản lý đơn dịch vụ, kỹ thuật viên, danh mục và báo cáo tài chính.</p>
             </div>
           </div>
+          <button
+            onClick={() => setActiveTab('admin')}
+            className="bg-[#ff8a00] hover:bg-[#914c00] text-white font-bold px-5 py-2.5 rounded-xl shadow transition-all cursor-pointer whitespace-nowrap text-xs sm:text-sm min-h-[40px]"
+          >
+            Truy cập Admin &rarr;
+          </button>
+        </div>
+      )}
 
-          <div>
-            <label className="text-xs font-bold text-[#414751] block mb-1">Địa chỉ mặc định</label>
-            <input
-              type="text"
-              required
-              value={profile.address}
-              onChange={(e) => setProfile({ ...profile, address: e.target.value })}
-              className="w-full bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl px-4 py-2.5 text-sm"
-            />
+      {/* Personal Information & Profile Card */}
+      <div className="bg-white rounded-2xl p-5 sm:p-7 shadow-xs border border-gray-100 mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-gray-100 mb-5">
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-[#005396] text-white rounded-full flex items-center justify-center font-black text-xl sm:text-2xl shadow-sm uppercase shrink-0">
+              {fullName.charAt(0)}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-extrabold text-[#141b2b]">{fullName}</h2>
+                <span className="inline-flex items-center gap-1 bg-[#e9edff] text-[#005396] text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-[#005396]/10">
+                  <span className="material-symbols-outlined text-[12px]">badge</span>
+                  <span>{userProfile?.role === 'admin' ? 'Quản trị viên' : 'Khách hàng'}</span>
+                </span>
+              </div>
+              <p className="text-xs text-[#717783] mt-0.5 font-medium">
+                Thông tin tài khoản và liên hệ cá nhân
+              </p>
+            </div>
           </div>
 
           <button
-            type="submit"
-            className="w-full bg-[#005396] hover:bg-[#0f6cbd] text-white font-bold py-3 rounded-xl shadow-md transition-colors cursor-pointer"
+            onClick={() => setIsEditingProfile(!isEditingProfile)}
+            className="bg-[#e9edff] text-[#005396] hover:bg-[#005396] hover:text-white font-bold px-4 py-2 rounded-xl transition-all text-xs cursor-pointer whitespace-nowrap flex items-center gap-1.5 self-end sm:self-auto"
           >
-            Lưu thay đổi
+            <span className="material-symbols-outlined text-[16px]">
+              {isEditingProfile ? 'close' : 'edit'}
+            </span>
+            <span>{isEditingProfile ? 'Hủy chỉnh sửa' : 'Chỉnh sửa'}</span>
           </button>
-        </form>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#c1c7d3]/30 space-y-3">
-            <h3 className="text-base font-bold text-[#141b2b] flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#005396]">location_on</span>
-              <span>Địa chỉ dịch vụ mặc định</span>
-            </h3>
-            <p className="text-sm text-[#414751] leading-relaxed">{profile.address}</p>
+        </div>
+
+        {isEditingProfile ? (
+          <form onSubmit={handleSaveProfile} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-[#414751] block mb-1">Họ và tên lót *</label>
+                <input
+                  type="text"
+                  required
+                  value={profileForm.lastName}
+                  onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                  placeholder="Ví dụ: Nguyễn Văn"
+                  className="w-full bg-[#f8f9ff] border border-[#c1c7d3] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm outline-none focus:border-[#005396] focus:bg-white font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-[#414751] block mb-1">Tên *</label>
+                <input
+                  type="text"
+                  required
+                  value={profileForm.firstName}
+                  onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
+                  placeholder="Ví dụ: Anh"
+                  className="w-full bg-[#f8f9ff] border border-[#c1c7d3] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm outline-none focus:border-[#005396] focus:bg-white font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-[#414751] block mb-1">Số điện thoại *</label>
+                <input
+                  type="tel"
+                  required
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                  placeholder="0901234567"
+                  className="w-full bg-[#f8f9ff] border border-[#c1c7d3] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm outline-none focus:border-[#005396] focus:bg-white font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-[#414751] block mb-1">Email *</label>
+                <input
+                  type="email"
+                  required
+                  value={profileForm.email}
+                  onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                  placeholder="example@gmail.com"
+                  className="w-full bg-[#f8f9ff] border border-[#c1c7d3] rounded-xl px-3.5 py-2.5 text-xs sm:text-sm outline-none focus:border-[#005396] focus:bg-white font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="submit"
+                className="px-5 py-2.5 bg-[#005396] hover:bg-[#0f6cbd] text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
+              >
+                Lưu thông tin cá nhân
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsEditingProfile(false)}
+                className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-[#414751] rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm">
+            <div className="bg-[#f8f9ff] p-3.5 rounded-xl border border-gray-100">
+              <span className="text-[11px] text-[#717783] uppercase font-bold block mb-0.5">Họ và tên lót:</span>
+              <span className="font-bold text-[#141b2b]">{profileForm.lastName || '—'}</span>
+            </div>
+            <div className="bg-[#f8f9ff] p-3.5 rounded-xl border border-gray-100">
+              <span className="text-[11px] text-[#717783] uppercase font-bold block mb-0.5">Tên:</span>
+              <span className="font-bold text-[#141b2b]">{profileForm.firstName || '—'}</span>
+            </div>
+            <div className="bg-[#f8f9ff] p-3.5 rounded-xl border border-gray-100">
+              <span className="text-[11px] text-[#717783] uppercase font-bold block mb-0.5">Số điện thoại:</span>
+              <span className="font-bold text-[#141b2b]">{profileForm.phone || '—'}</span>
+            </div>
+            <div className="bg-[#f8f9ff] p-3.5 rounded-xl border border-gray-100">
+              <span className="text-[11px] text-[#717783] uppercase font-bold block mb-0.5">Email:</span>
+              <span className="font-bold text-[#141b2b]">{profileForm.email || '—'}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 2: Multiple Address Management */}
+      <div className="bg-white rounded-2xl p-5 sm:p-7 shadow-xs border border-gray-100 mb-6 space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-extrabold text-[#005396] flex items-center gap-2">
+              <span className="material-symbols-outlined text-[20px]">location_on</span>
+              Danh Sách Địa Chỉ Nhận Dịch Vụ
+              <span className="text-xs font-bold px-2.5 py-0.5 bg-[#e9edff] text-[#005396] rounded-full">
+                {addresses.length}
+              </span>
+            </h2>
+            <p className="text-xs text-[#717783] mt-0.5">
+              Khách hàng có thể lưu nhiều địa chỉ để chọn nhanh khi đặt dịch vụ kỹ thuật.
+            </p>
           </div>
 
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#c1c7d3]/30 space-y-3">
-            <h3 className="text-base font-bold text-[#141b2b] flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#005396]">receipt_long</span>
-              <span>Lịch hẹn đã đăng ký</span>
-            </h3>
-            <p className="text-sm text-[#414751]">Hiện tại bạn có <strong>{bookingCount}</strong> lịch hẹn dịch vụ.</p>
+          <button
+            onClick={handleOpenAddAddress}
+            className="px-3.5 py-2 bg-[#005396] hover:bg-[#0f6cbd] text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+          >
+            <span className="material-symbols-outlined text-[16px]">add</span>
+            <span>Thêm địa chỉ</span>
+          </button>
+        </div>
+
+        {/* Address Add / Edit Form Modal / Inline Card */}
+        {isAddressFormOpen && (
+          <form
+            onSubmit={handleSaveAddress}
+            className="bg-[#f8f9ff] p-4 sm:p-5 rounded-2xl border-2 border-[#005396]/30 space-y-3.5"
+          >
+            <div className="flex items-center justify-between pb-2 border-b border-gray-200">
+              <h3 className="text-xs sm:text-sm font-extrabold text-[#005396] flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[18px]">edit_location</span>
+                <span>{editingAddressId ? 'Chỉnh sửa địa chỉ' : 'Thêm địa chỉ mới'}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsAddressFormOpen(false)}
+                className="text-gray-400 hover:text-gray-700 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+
+            {/* Address sub-fields grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-[#414751] block mb-1">Tỉnh / Thành phố *</label>
+                <input
+                  type="text"
+                  required
+                  value={addressForm.province}
+                  onChange={(e) => handleAddressSubFieldChange('province', e.target.value)}
+                  placeholder="TP. Hồ Chí Minh"
+                  className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-[#414751] block mb-1">Phường / Xã *</label>
+                <input
+                  type="text"
+                  required
+                  value={addressForm.ward}
+                  onChange={(e) => handleAddressSubFieldChange('ward', e.target.value)}
+                  placeholder="Phường Bến Nghé"
+                  className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-[#414751] block mb-1">Tên đường</label>
+                <input
+                  type="text"
+                  value={addressForm.street}
+                  onChange={(e) => handleAddressSubFieldChange('street', e.target.value)}
+                  placeholder="Đường Lê Duẩn"
+                  className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-[#414751] block mb-1">Số nhà</label>
+                <input
+                  type="text"
+                  value={addressForm.houseNumber}
+                  onChange={(e) => handleAddressSubFieldChange('houseNumber', e.target.value)}
+                  placeholder="123A"
+                  className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
+                />
+              </div>
+            </div>
+
+            {/* Auto Updated Full Address */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-[#005396] flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
+                  <span>Địa chỉ đầy đủ (Tự động cập nhật) *</span>
+                </label>
+                <span className="text-[10px] text-[#717783]">Có thể tùy chỉnh lại</span>
+              </div>
+              <input
+                type="text"
+                required
+                value={addressForm.fullAddress}
+                onChange={(e) => setAddressForm({ ...addressForm, fullAddress: e.target.value })}
+                placeholder="Số 123A Đường Lê Duẩn, Phường Bến Nghé, TP. Hồ Chí Minh"
+                className="w-full bg-white border border-[#005396]/40 rounded-xl px-3.5 py-2.5 text-xs font-bold text-[#141b2b] outline-none focus:border-[#005396] shadow-2xs"
+              />
+            </div>
+
+            {/* Address Note */}
+            <div>
+              <label className="text-[11px] font-bold text-[#414751] block mb-1">Ghi chú địa chỉ (nếu có)</label>
+              <input
+                type="text"
+                value={addressForm.note}
+                onChange={(e) => setAddressForm({ ...addressForm, note: e.target.value })}
+                placeholder="Ví dụ: Căn hộ 502, Tòa nhà Saigon Tower, giao tận tay..."
+                className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
+              />
+            </div>
+
+            {/* Submit Action buttons */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="submit"
+                className="px-4 py-2 bg-[#005396] hover:bg-[#0f6cbd] text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
+              >
+                Lưu địa chỉ
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsAddressFormOpen(false)}
+                className="px-3.5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Hủy
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Address List Display */}
+        {isLoadingAddresses ? (
+          <div className="py-8 text-center">
+            <div className="inline-block animate-spin rounded-full h-7 w-7 border-3 border-[#005396] border-t-transparent mb-2"></div>
+            <p className="text-xs text-[#005396] font-bold">Đang tải danh sách địa chỉ...</p>
+          </div>
+        ) : addresses.length === 0 ? (
+          <div className="p-6 text-center bg-[#f8f9ff] rounded-2xl border border-dashed border-gray-200">
+            <span className="material-symbols-outlined text-3xl text-gray-300 mb-1">add_location_alt</span>
+            <p className="text-xs text-[#717783] font-medium mb-3">Bạn chưa lưu địa chỉ dịch vụ nào.</p>
             <button
-              onClick={() => setActiveTab('history')}
-              className="text-xs font-bold text-[#005396] hover:underline cursor-pointer"
+              onClick={handleOpenAddAddress}
+              className="px-3.5 py-1.5 bg-[#005396] text-white rounded-xl text-xs font-bold cursor-pointer"
             >
-              Xem danh sách lịch hẹn &rarr;
+              Thêm địa chỉ ngay
             </button>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {addresses.map((addr, idx) => (
+              <div
+                key={addr.id || idx}
+                className="p-4 rounded-xl border border-gray-200 bg-[#f8f9ff]/60 hover:bg-white hover:border-[#005396]/30 hover:shadow-xs transition-all flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#005396] bg-[#e9edff] px-2.5 py-0.5 rounded-md">
+                      <span className="material-symbols-outlined text-[14px]">home_pin</span>
+                      <span>Địa chỉ #{idx + 1}</span>
+                    </span>
 
-      {/* Support & Quick Actions */}
-      <div className="bg-[#f1f3ff] rounded-2xl p-6 border border-[#c1c7d3]/30 space-y-4 mb-8">
-        <h3 className="text-base font-bold text-[#141b2b]">Hỗ trợ khách hàng 24/7</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleOpenEditAddress(addr)}
+                        className="text-xs text-[#005396] hover:bg-[#e9edff] p-1 rounded-md font-bold cursor-pointer flex items-center gap-0.5"
+                        title="Sửa địa chỉ"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">edit</span>
+                        <span className="hidden sm:inline">Sửa</span>
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAddress(addr.id)}
+                        className="text-xs text-[#ba1a1a] hover:bg-[#ffdad6] p-1 rounded-md font-bold cursor-pointer flex items-center gap-0.5"
+                        title="Xóa địa chỉ"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">delete</span>
+                        <span className="hidden sm:inline">Xóa</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Full Address */}
+                  <p className="text-xs sm:text-sm font-bold text-[#141b2b] leading-relaxed mb-1">
+                    {addr.full_address}
+                  </p>
+
+                  {/* Details */}
+                  {(addr.house_number || addr.street || addr.ward || addr.province) && (
+                    <p className="text-[11px] text-[#717783] font-medium">
+                      {[addr.house_number ? `Số ${addr.house_number}` : '', addr.street, addr.ward, addr.province].filter(Boolean).join(' • ')}
+                    </p>
+                  )}
+
+                  {/* Note */}
+                  {addr.note && (
+                    <p className="text-[11px] text-[#914c00] bg-amber-50 border border-amber-200/60 p-2 rounded-lg mt-2 font-medium">
+                      📌 Ghi chú: {addr.note}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 3: Bookings & Support Info */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="bg-white rounded-2xl p-5 shadow-xs border border-gray-100 space-y-2">
+          <h3 className="text-sm font-bold text-[#141b2b] flex items-center gap-2">
+            <span className="material-symbols-outlined text-[#005396]">receipt_long</span>
+            <span>Lịch hẹn đã đặt</span>
+          </h3>
+          <p className="text-xs text-[#414751]">Hiện tại bạn có <strong className="text-[#005396]">{bookingCount}</strong> lịch hẹn dịch vụ kỹ thuật.</p>
+          <button
+            onClick={() => setActiveTab('history')}
+            className="text-xs font-bold text-[#005396] hover:underline cursor-pointer pt-1 inline-block"
+          >
+            Xem lịch sử đặt dịch vụ &rarr;
+          </button>
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 shadow-xs border border-gray-100 space-y-2">
+          <h3 className="text-sm font-bold text-[#141b2b] flex items-center gap-2">
+            <span className="material-symbols-outlined text-[#005396]">support_agent</span>
+            <span>Hỗ trợ kỹ thuật 24/7</span>
+          </h3>
+          <p className="text-xs text-[#414751]">Hotline: <strong className="text-[#ba1a1a]">1900 6868</strong> • Email: support@hvacmasters.com</p>
           <a
             href="tel:19006868"
-            className="bg-white p-4 rounded-xl border border-[#c1c7d3]/40 flex items-center gap-3 text-[#141b2b] hover:border-[#005396] transition-colors"
+            className="text-xs font-bold text-[#005396] hover:underline cursor-pointer pt-1 inline-block"
           >
-            <span className="material-symbols-outlined text-[#ba1a1a]">phone_in_talk</span>
-            <div>
-              <span className="font-bold block">Hotline khẩn cấp</span>
-              <span className="text-[#717783] text-xs">1900 6868</span>
-            </div>
-          </a>
-
-          <a
-            href="mailto:support@hvacmasters.com"
-            className="bg-white p-4 rounded-xl border border-[#c1c7d3]/40 flex items-center gap-3 text-[#141b2b] hover:border-[#005396] transition-colors"
-          >
-            <span className="material-symbols-outlined text-[#005396]">mail</span>
-            <div>
-              <span className="font-bold block">Gửi Email hỗ trợ</span>
-              <span className="text-[#717783] text-xs">support@hvacmasters.com</span>
-            </div>
+            Gọi hỗ trợ ngay &rarr;
           </a>
         </div>
       </div>
 
-      {user && (
+      {userProfile && (
         <button
           onClick={handleSignOut}
-          className="sm:hidden w-full flex items-center justify-center gap-2 bg-[#ffdad6] text-[#ba1a1a] hover:bg-[#ba1a1a] hover:text-white font-bold py-3.5 rounded-xl transition-colors cursor-pointer"
+          className="sm:hidden w-full flex items-center justify-center gap-2 bg-[#ffdad6] text-[#ba1a1a] hover:bg-[#ba1a1a] hover:text-white font-bold py-3 rounded-xl transition-colors cursor-pointer text-xs"
         >
-          <span className="material-symbols-outlined text-[20px]">logout</span>
-          Đăng xuất khỏi thiết bị
+          <span className="material-symbols-outlined text-[18px]">logout</span>
+          <span>Đăng xuất tài khoản</span>
         </button>
       )}
     </div>

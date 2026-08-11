@@ -1,276 +1,602 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Logo } from './Logo';
 import {
   ActiveTab,
   AdminSubTab,
   BookingRecord,
   AdminTechnician,
   AdminCustomer,
-  AdminService
+  AdminService,
+  AdminOrder,
+  UserProfile,
+  CustomerReview
 } from '../types';
 import { User } from '@supabase/supabase-js';
+import { authService } from '../services/authService';
+import { commonService } from '../services/commonService';
+import { SERVICE_TYPES, getServiceTypeInfo } from '../constants/serviceTypes';
 
 interface AdminDashboardProps {
   setActiveTab: (tab: ActiveTab) => void;
   user?: User | null;
+  userProfile?: UserProfile | null;
   bookings: BookingRecord[];
   onUpdateBookings?: (bookings: BookingRecord[]) => void;
+  onLogout?: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   setActiveTab,
   user,
+  userProfile,
   bookings,
-  onUpdateBookings
+  onUpdateBookings,
+  onLogout
 }) => {
   const [adminSubTab, setAdminSubTab] = useState<AdminSubTab>('requests');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
+  const handleAdminLogout = () => {
+    authService.logout();
+    if (onLogout) {
+      onLogout();
+    }
+    setActiveTab('auth');
+  };
+
   // --- 1. REQUESTS / ORDERS STATE ---
-  const [orderTab, setOrderTab] = useState<'unassigned' | 'processing' | 'completed'>('unassigned');
-  const [selectedOrderForAssign, setSelectedOrderForAssign] = useState<string | null>(null);
-  const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
-
-  // Default orders if local bookings list is small or empty
-  const [adminOrders, setAdminOrders] = useState([
-    { id: "#HVAC-9901", customer: "Trần Anh Quân", phone: "0901234567", service: "Bảo trì điều hòa", date: "24/10 - 14:00", tech: "Chưa chỉ định", status: "Chờ xử lý", category: "unassigned", price: 250000 },
-    { id: "#HVAC-9904", customer: "Lê Minh Tâm", phone: "0912345678", service: "Sửa máy giặt", date: "24/10 - 15:30", tech: "Chưa chỉ định", status: "Chờ xử lý", category: "unassigned", price: 350000 },
-    { id: "#HVAC-9907", customer: "Phạm Hữu Đạt", phone: "0987654321", service: "Lắp đặt tủ lạnh", date: "25/10 - 08:00", tech: "Chưa chỉ định", status: "Chờ xử lý", category: "unassigned", price: 450000 },
-    { id: "#HVAC-9910", customer: "Hoàng Gia Bảo", phone: "0900000001", service: "Vệ sinh máy lạnh", date: "25/10 - 09:15", tech: "Chưa chỉ định", status: "Chờ xử lý", category: "unassigned", price: 250000 },
-    { id: "#HVAC-9912", customer: "Đặng Thu Hà", phone: "0911222333", service: "Sửa bình nóng lạnh", date: "25/10 - 10:45", tech: "Chưa chỉ định", status: "Chờ xử lý", category: "unassigned", price: 300000 },
-    { id: "#HVAC-9915", customer: "Bùi Tuyết Nhung", phone: "0922333444", service: "Kiểm tra gas", date: "25/10 - 13:30", tech: "Chưa chỉ định", status: "Chờ xử lý", category: "unassigned", price: 150000 },
-    { id: "#HVAC-9850", customer: "Nguyễn Văn A", phone: "090 123 4567", service: "Lắp đặt hệ thống VRV", date: "24/10 - 09:00", tech: "Nguyễn Hoàng", status: "Đang xử lý", category: "processing", price: 1500000 },
-    { id: "#HVAC-9855", customer: "Phạm Thị B", phone: "0933444555", service: "Sửa chữa bo mạch", date: "24/10 - 10:30", tech: "Vũ Tiến", status: "Đang xử lý", category: "processing", price: 650000 },
-    { id: "#HVAC-9800", customer: "Đỗ Thế C", phone: "0944555666", service: "Bơm gas R32", date: "23/10 - 16:00", tech: "Nguyễn Hoàng", status: "Đã hoàn thành", category: "completed", price: 450000 }
-  ]);
-
-  // Form state for creating a new admin order
-  const [newOrderForm, setNewOrderForm] = useState({
-    customerName: '',
-    phone: '',
-    serviceName: 'Vệ sinh máy lạnh',
-    dateTime: 'Hôm nay - 14:00',
-    price: 250000
-  });
+  const [adminOrders, setAdminOrders] = useState<AdminOrder[]>([]);
+  const [isOrdersLoading, setIsOrdersLoading] = useState(false);
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderDateFilter, setOrderDateFilter] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
+  const [selectedOrderForDetail, setSelectedOrderForDetail] = useState<AdminOrder | null>(null);
+  const [orderDetailReview, setOrderDetailReview] = useState<CustomerReview | null>(null);
+  const [isLoadingOrderReview, setIsLoadingOrderReview] = useState<boolean>(false);
+  const [assigningOrder, setAssigningOrder] = useState<AdminOrder | null>(null);
+  const [assignWorkerId, setAssignWorkerId] = useState<string>('');
+  const [modalAssignedWorkerIds, setModalAssignedWorkerIds] = useState<number[]>([]);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [assignModalTechSearch, setAssignModalTechSearch] = useState('');
 
   // --- 2. TECHNICIANS STATE ---
-  const [technicians, setTechnicians] = useState<AdminTechnician[]>([
-    {
-      id: "tech-1",
-      code: "TECH-001",
-      name: "Nguyễn Văn A",
-      avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuDIB5Sltv6FZZyqMTpCFWDf6NUyHMqhQGYRdF-nPUikl1tw1ojk_JUy2nnpP8Zr85eGIdyEaAcWLGKUc94OwHJ0wT6qzZxrrPmOEMYhNjpiqa9O32ldx2aSAoaWXoaoc5PDDxHl8JXINVSQqSCcO1M7pgQno3TT-TSSxiOZI_pjgzQM6_ZjVTDZVE3R7Yu18JUdEgjpAOALgIsR485xjekpqz489GmabPETB15TSIcmVXtEs-P6tcw3UQ",
-      skill: "Sửa chữa điều hòa",
-      completedOrders: 120,
-      rating: 4.8,
-      status: "working",
-      phone: "0987654321"
-    },
-    {
-      id: "tech-2",
-      code: "TECH-002",
-      name: "Trần Minh B",
-      avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuA6rSZkFGnHLnRK0ObycbQVfnzlybmuovZYHJjfxx3_mDCNzLkR5veLNkj59CYbWWlBE-hXGWlGucCsYb0JQSJfGlK11JKIdWmOekL44G1x5IFMF9DLD4qTMhtzlNGZxDJRhnxgdcCQ9wfURPmCGbmehAmoRh537cMplsnywJpqByIQBSyGQiuveN3kzofXYU6huQICUHum9C8sFnilyJkfJGnv-ZBkjrVoxtRUPe473xy--ho1xeJQbQ",
-      skill: "Lắp đặt hệ thống",
-      completedOrders: 85,
-      rating: 4.9,
-      status: "leave",
-      phone: "0912345678"
-    },
-    {
-      id: "tech-3",
-      code: "TECH-003",
-      name: "Lê Văn C",
-      avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuAFWX6ZIONJoYIzdv4TLS_VUZWJ1Cf2x_KtBTvYJI-306If_Obc-zS7r51YBce1fEUr0h8Y1fMJ8VtLHho0oRXdLSp6RXOzqhCT77-FKKrlBeZ92x1y8l1kUbUJq883IlVgD9yVS7GuwA6SFcLJjThCmTYJqcswSXyde6rXHS8pixqsuquqhkrMpZPkfl_oWbdLbdSOwwPIMXaZt9zkpsEbx5Wb1mooN1ZKsg1fF6D8q9zgMPFSEo5tFA",
-      skill: "Bảo trì định kỳ",
-      completedOrders: 45,
-      rating: 4.7,
-      status: "waiting",
-      phone: "0901234567"
+  const [technicians, setTechnicians] = useState<AdminTechnician[]>([]);
+  const [isTechLoading, setIsTechLoading] = useState(false);
+
+  const loadAdminOrders = useCallback(async () => {
+    setIsOrdersLoading(true);
+    const { adminService } = await import('../services/adminService');
+    const data = await adminService.fetchAdminOrders();
+    setAdminOrders(data);
+    setIsOrdersLoading(false);
+  }, []);
+
+  const loadTechnicians = useCallback(async () => {
+    setIsTechLoading(true);
+    const { adminService } = await import('../services/adminService');
+    const data = await adminService.fetchTechnicians();
+    setTechnicians(data);
+    setIsTechLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadAdminOrders();
+    loadTechnicians();
+  }, [loadAdminOrders, loadTechnicians]);
+
+  useEffect(() => {
+    if (adminSubTab === 'requests') {
+      loadAdminOrders();
+      loadTechnicians();
+    } else if (adminSubTab === 'technicians') {
+      loadTechnicians();
     }
-  ]);
-  const [techSearch, setTechSearch] = useState('');
-  const [techSkillFilter, setTechSkillFilter] = useState('all');
-  const [techStatusFilter, setTechStatusFilter] = useState('all');
+  }, [adminSubTab, loadAdminOrders, loadTechnicians]);
+
+  const [techSearch, setTechSearch] = useState("");
   const [isAddTechModalOpen, setIsAddTechModalOpen] = useState(false);
-  const [newTechForm, setNewTechForm] = useState({
-    name: '',
-    phone: '',
-    skill: 'Sửa chữa điều hòa'
-  });
+  const [editingTechId, setEditingTechId] = useState<string | null>(null);
+  const [newTechForm, setNewTechForm] = useState({ first_name: "", last_name: "", phone_number: "", email: "", password: "" });
+
+  const [viewingTechHistoryId, setViewingTechHistoryId] = useState<string | null>(null);
+  const [techHistory, setTechHistory] = useState<any[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
 
   // --- 3. CUSTOMERS STATE ---
-  const [customers, setCustomers] = useState<AdminCustomer[]>([
-    {
-      id: "cust-1",
-      code: "HVAC-C001",
-      name: "Nguyễn Văn An",
-      avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuDANYRDZKEYHtdRC8ECMWPgmOXHbHd9ZpE4m5u1J6THkUOaScsNSxyyoRTvfCVinhZ6OemcIJRhrr8qQLLoZEw058oM7KhF8evKOcW92CBDzoXz4pJIdqrfjvjnFpolas1m4YY2XqjK22keyR8IvvFSr7c2-JDaTNgnJbnCtjjZIAIreyL0AI8k4R6Tf3PXtw53v9LxbmY9kPwR5c3k_Iv8PmcqVzlblp8-_TKrRATvwy9im6cjM6ljow",
-      phone: "0912 345 678",
-      email: "an.nguyen@email.com",
-      address: "123 Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh",
-      totalOrders: 5,
-      totalSpend: 12500000,
-      lastServiceDate: "24/10/2024",
-      lastServiceType: "Bảo trì hệ thống",
-      notes: "Khách hàng thân thiết, ưu tiên lịch bảo trì cuối tuần."
-    },
-    {
-      id: "cust-2",
-      code: "HVAC-C012",
-      name: "Lê Thị Mai",
-      avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuBhM0TaqRGn4mr5LtjkfAktUua2_4hu0a3cvk_jl0UtYLO2_O4-XUENm7BbulQIrvDta6CPyaIe_9-dRS3vYxKDcnEhOMfNigMlkpB6042lK9Ivy0GJcohpZsklfGu4PyTtP0lMkY4rwcmwbl3a28Iov2GDlLHuu2jwOakDMJOkTGTNn5wSq0Ivhu-uzdPS4qXng1kUwW_8Ae6dDff_dhT8GuILne0M0IFv1rgKhS9VXR2s2j9P2FIiSg",
-      phone: "0908 123 456",
-      email: "mai.le@email.com",
-      address: "456 Nguyễn Thị Minh Khai, Quận 3, TP. Hồ Chí Minh",
-      totalOrders: 2,
-      totalSpend: 4200000,
-      lastServiceDate: "15/09/2024",
-      lastServiceType: "Lắp đặt máy mới",
-      notes: "Khách hàng cẩn thận, hay yêu cầu kỹ thuật viên kiểm tra kỹ bo mạch."
-    },
-    {
-      id: "cust-3",
-      code: "HVAC-C205",
-      name: "Trần Minh Tâm",
-      avatar: "https://lh3.googleusercontent.com/aida-public/AB6AXuDhpCwRAzDAc1Okdezg7HIwft1CNZBsSVCidB2_GAPKcKEYJ9eR_FCGW1ODmCANL204T1Wj-7zmJKSXcMYOpLBoKKrrs2See6vxMAgFQ-uRZco_VZYaAfcyrNgabsxOF-QdupEK74Az3az8GYmthKZAJ-c2gBg_BrFdiCGHKXMNGIuetNXnU7mIPwwnH8wnvUNudeXACn2ENX7S0PX_LaD5ztdFwBATIDpLXO1AK7ovg3j469iF-ThKNg",
-      phone: "0933 555 999",
-      email: "tam.tm@email.com",
-      address: "789 Điện Biên Phủ, Bình Thạnh, TP. Hồ Chí Minh",
-      totalOrders: 1,
-      totalSpend: 1500000,
-      lastServiceDate: "12/02/2023",
-      lastServiceType: "Sửa chữa khẩn cấp",
-      notes: "Liên hệ qua Zalo trước khi tới."
-    }
-  ]);
+  const [customers, setCustomers] = useState<AdminCustomer[]>([]);
+  const [isCustomersLoading, setIsCustomersLoading] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
-  const [expandedCustomerHistory, setExpandedCustomerHistory] = useState<string | null>(null);
+  const [customerProvinceFilter, setCustomerProvinceFilter] = useState('');
+  const [customerWardFilter, setCustomerWardFilter] = useState('');
+
+  // Modals state for customers
+  const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState({
+    first_name: '',
+    last_name: '',
+    phone_number: '',
+    house_number: '',
+    street: '',
+    ward: '',
+    province: '',
+    full_address: ''
+  });
+
+  const updateCustomerAddressFields = (fields: Partial<typeof newCustomerForm>) => {
+    setNewCustomerForm(prev => {
+      const updated = { ...prev, ...fields };
+      const parts = [
+        updated.house_number.trim(),
+        updated.street.trim(),
+        updated.ward.trim(),
+        updated.province.trim()
+      ].filter(Boolean);
+      updated.full_address = parts.join(', ');
+      return updated;
+    });
+  };
+
+  const [selectedCustomerDetail, setSelectedCustomerDetail] = useState<AdminCustomer | null>(null);
+
+  // Edit & Delete guest customer state
+  const [editingGuestCustomer, setEditingGuestCustomer] = useState<AdminCustomer | null>(null);
+  const [editCustomerForm, setEditCustomerForm] = useState({
+    first_name: '',
+    last_name: '',
+    phone_number: '',
+    house_number: '',
+    street: '',
+    ward: '',
+    province: '',
+    full_address: ''
+  });
+
+  const updateEditCustomerAddressFields = (fields: Partial<typeof editCustomerForm>) => {
+    setEditCustomerForm(prev => {
+      const updated = { ...prev, ...fields };
+      const parts = [
+        updated.house_number.trim(),
+        updated.street.trim(),
+        updated.ward.trim(),
+        updated.province.trim()
+      ].filter(Boolean);
+      updated.full_address = parts.join(', ');
+      return updated;
+    });
+  };
+
+  const handleOpenEditGuestCustomer = (cust: AdminCustomer) => {
+    setEditingGuestCustomer(cust);
+    setEditCustomerForm({
+      first_name: cust.first_name || '',
+      last_name: cust.last_name || '',
+      phone_number: cust.phone || '',
+      house_number: cust.house_number || '',
+      street: cust.street || '',
+      ward: cust.ward || '',
+      province: cust.province || '',
+      full_address: cust.address || ''
+    });
+  };
+
+  const handleEditGuestCustomerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGuestCustomer) return;
+    if (!editCustomerForm.first_name.trim() || !editCustomerForm.last_name.trim() || !editCustomerForm.phone_number.trim()) {
+      alert('Vui lòng nhập đầy đủ Họ, Tên và Số điện thoại!');
+      return;
+    }
+    const { adminService } = await import('../services/adminService');
+    const res = await adminService.updateGuestCustomer(editingGuestCustomer.numericId, editCustomerForm);
+    if (res.success) {
+      alert('Cập nhật thông tin khách hàng thành công!');
+      setEditingGuestCustomer(null);
+      if (selectedCustomerDetail && selectedCustomerDetail.id === editingGuestCustomer.id) {
+        setSelectedCustomerDetail(null);
+      }
+      loadCustomers();
+    } else {
+      alert('Có lỗi xảy ra: ' + res.message);
+    }
+  };
+
+  const handleDeleteGuestCustomer = async (cust: AdminCustomer) => {
+    if (!confirm(`Bạn có chắc chắn muốn xóa khách hàng vãng lai "${cust.name}" (${cust.phone}) không?`)) {
+      return;
+    }
+    const { adminService } = await import('../services/adminService');
+    const res = await adminService.deleteGuestCustomer(cust.numericId);
+    if (res.success) {
+      alert('Xóa khách hàng vãng lai thành công!');
+      if (selectedCustomerDetail && selectedCustomerDetail.id === cust.id) {
+        setSelectedCustomerDetail(null);
+      }
+      loadCustomers();
+    } else {
+      alert(res.message || 'Không thể xóa khách hàng!');
+    }
+  };
+
+  const [selectedCustomerHistory, setSelectedCustomerHistory] = useState<AdminCustomer | null>(null);
+  const [customerOrders, setCustomerOrders] = useState<any[]>([]);
+  const [isCustomerOrdersLoading, setIsCustomerOrdersLoading] = useState(false);
+
+  const [createAccountCustomer, setCreateAccountCustomer] = useState<AdminCustomer | null>(null);
+  const [createAccountForm, setCreateAccountForm] = useState({
+    email: '',
+    password: ''
+  });
+
+  const loadCustomers = () => {
+    setIsCustomersLoading(true);
+    import('../services/adminService').then(({ adminService }) => {
+      adminService.fetchCustomers().then(data => {
+        setCustomers(data);
+        setIsCustomersLoading(false);
+      });
+    });
+  };
+
+  React.useEffect(() => {
+    if (adminSubTab === 'customers') {
+      loadCustomers();
+    }
+  }, [adminSubTab]);
+
+  const handleViewCustomerHistory = (cust: AdminCustomer) => {
+    setSelectedCustomerHistory(cust);
+    setIsCustomerOrdersLoading(true);
+    import('../services/adminService').then(({ adminService }) => {
+      adminService.fetchCustomerOrders(cust.numericId).then(orders => {
+        setCustomerOrders(orders);
+        setIsCustomerOrdersLoading(false);
+      });
+    });
+  };
+
+  const handleAddCustomerWithoutAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustomerForm.first_name.trim() || !newCustomerForm.last_name.trim() || !newCustomerForm.phone_number.trim()) {
+      alert('Vui lòng nhập đầy đủ Họ, Tên và Số điện thoại!');
+      return;
+    }
+    const { adminService } = await import('../services/adminService');
+    const res = await adminService.addCustomerWithoutAccount(newCustomerForm);
+    if (res.success) {
+      alert('Thêm khách hàng thành công!');
+      setIsAddCustomerModalOpen(false);
+      setNewCustomerForm({
+        first_name: '',
+        last_name: '',
+        phone_number: '',
+        house_number: '',
+        street: '',
+        ward: '',
+        province: '',
+        full_address: ''
+      });
+      loadCustomers();
+    } else {
+      alert('Có lỗi xảy ra: ' + res.message);
+    }
+  };
+
+  const handleOpenCreateAccount = (cust: AdminCustomer) => {
+    setCreateAccountCustomer(cust);
+    const suggestedEmail = cust.email && !cust.email.endsWith('@guest.local') 
+      ? cust.email 
+      : `khach_${cust.phone.replace(/\D/g, '') || Date.now()}@gmail.com`;
+    setCreateAccountForm({
+      email: suggestedEmail,
+      password: ''
+    });
+  };
+
+  const handleCreateAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createAccountCustomer) return;
+    if (!createAccountForm.email.trim() || !createAccountForm.password.trim()) {
+      alert('Vui lòng nhập Email và Mật khẩu!');
+      return;
+    }
+    const { adminService } = await import('../services/adminService');
+    const res = await adminService.createCustomerAccount(createAccountCustomer.numericId, createAccountForm);
+    if (res.success) {
+      alert('Tạo tài khoản thành công cho khách hàng ' + createAccountCustomer.name + '!');
+      setCreateAccountCustomer(null);
+      setCreateAccountForm({ email: '', password: '' });
+      if (selectedCustomerDetail && selectedCustomerDetail.id === createAccountCustomer.id) {
+        setSelectedCustomerDetail(null);
+      }
+      loadCustomers();
+    } else {
+      alert('Có lỗi xảy ra: ' + res.message);
+    }
+  };
 
   // --- 4. SERVICES STATE ---
-  const [services, setServices] = useState<AdminService[]>([
-    {
-      id: "srv-1",
-      name: "Sửa chữa máy lạnh (AC Repair)",
-      category: "Khẩn cấp",
-      deviceType: "Máy lạnh (AC)",
-      price: 1500000,
-      imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuC5q_q5A8AtiWprTcpV0J1zNaEI3TfSYazI9qODLYK6L40_wZ70QnzSk6BX68nKzxVtigdQ2VQigkZ4hrbvxtCXdV3P0xxUb91IS6BviIZF5B4PPer5l4MsbvCWX6L3vlRJEAgG1mXBEML5ta7hUAftaA10Vz4dxLDq3D_dPQpLzHa-hCsi-jzfL_IxPU6859f_oQPYC0EcH4P-cZoiuywFgAe81uwqzqOGWmWMeB1Ol3C0Pz7_2uXo-Q"
-    },
-    {
-      id: "srv-2",
-      name: "Nạp Gas (Gas Refill)",
-      category: "Bảo trì",
-      deviceType: "Máy lạnh / Tủ lạnh",
-      price: 800000,
-      imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuAaYapZ6zleYshSwF4kSy3AfRVtWnyCDaJKRXz9k3LPYKdVoXLVqqetuJcVX901iV-w3Xae53PT4pixQS82vOTg4YrlxXzMEFXABQOwtcnKoHyZSn5kB_EWX1x1gabIZetnM4qJGn5ewetJYamjJFiW-q2cGU9Bfh_I-WY52IgILdUxUV9yjHp0IPY7V1NGXtHDIrts6kKFSXfn-cmgUlfevYhoaKzdaDTv82XTfASbTMPtqvphkUfoZw"
-    },
-    {
-      id: "srv-3",
-      name: "Bảo trì định kỳ (Maintenance)",
-      category: "Trọn gói",
-      deviceType: "Hệ thống HVAC",
-      price: 500000,
-      imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuD9TTiSmOgqiH6RnRWBKtTTAZyhYQcPDdDxYGlXU26DgHF9jTrLt-r6g-W5rTXzC6zfDP7hs_axDQJU_Uc3tEreSFxQWG-b7Kq8GbMIBVkuMkmSgZ3XDy_C3UgEQAu1Te5M6e0C9LCOJurpdUIi2ubbOAPhDZU8mb5kPzlb-x1mwq-PU_XA6HGUsZOSoYJI28NW50kqS0-9b8dRka_qnJeoscO-aDg6Zuij0Faa1WFcMCpx1i2W8rKNDQ"
-    },
-    {
-      id: "srv-4",
-      name: "Lắp đặt mới (Installation)",
-      category: "Lắp đặt",
-      deviceType: "Thiết bị mới",
-      price: 3200000,
-      imageUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuDjPbyUq8-5uTCUgDzUy8xVT7LIVLdKcfatHlHWAhS2Ert8NEsOiiENWTcyBuLLKb9BaPu27vlkZqPha3miRJo4lrz2oCGJtxnQvERvW9AC5F0at-VBuURWhNbMLL5Gr0VukNx_13V-77CD3eXa3cNum3Fq4FK4jXKaNZqB94lCRDRYUENaM6dXEfh6gYy3s4CtJWPDLSdSxnZ9XnqbmTSKMH7nFcdx_EWkLh3t3586y26A8JsTMAbHyA"
+  const [services, setServices] = useState<AdminService[]>([]);
+  const [isServicesLoading, setIsServicesLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (adminSubTab === 'services') {
+      setIsServicesLoading(true);
+      import('../services/adminService').then(({ adminService }) => {
+        adminService.fetchAdminServices().then(data => {
+          setServices(data);
+          setIsServicesLoading(false);
+        });
+      });
     }
-  ]);
+  }, [adminSubTab]);
+
   const [isAddServiceModalOpen, setIsAddServiceModalOpen] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [newServiceForm, setNewServiceForm] = useState({
     name: '',
-    category: 'Khẩn cấp' as const,
-    deviceType: 'Máy lạnh (AC)',
-    price: 500000
+    category: 'suachua',
+    deviceType: 'máy lạnh',
+    price: 350000,
+    note: ''
   });
+
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [serviceTypeFilter, setServiceTypeFilter] = useState('all');
+  const [deviceTypeFilter, setDeviceTypeFilter] = useState('all');
 
   // --- 5. REPORTS STATE ---
   const [reportPeriod, setReportPeriod] = useState<'7days' | '1month' | '2months' | '6months' | 'thisYear'>('7days');
   const [reportNotification, setReportNotification] = useState<string | null>(null);
 
   // --- ACTION HANDLERS ---
-  const handleAssignTechnician = (techName: string) => {
-    if (!selectedOrderForAssign) return;
-    setAdminOrders(prev =>
-      prev.map(o => {
-        if (o.id === selectedOrderForAssign) {
-          return {
-            ...o,
-            tech: techName,
-            status: "Đang xử lý",
-            category: "processing"
-          };
-        }
-        return o;
-      })
-    );
-    setSelectedOrderForAssign(null);
-  };
 
-  const handleCreateAdminOrder = (e: React.FormEvent) => {
+  const handleSaveTechnician = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newOrderForm.customerName.trim()) return;
-    const newId = `#HVAC-${Math.floor(1000 + Math.random() * 9000)}`;
-    setAdminOrders(prev => [
-      {
-        id: newId,
-        customer: newOrderForm.customerName,
-        phone: newOrderForm.phone || '0900000000',
-        service: newOrderForm.serviceName,
-        date: newOrderForm.dateTime,
-        tech: 'Chưa chỉ định',
-        status: 'Chờ xử lý',
-        category: 'unassigned',
-        price: Number(newOrderForm.price)
-      },
-      ...prev
-    ]);
-    setIsNewOrderModalOpen(false);
-    setNewOrderForm({ customerName: '', phone: '', serviceName: 'Vệ sinh máy lạnh', dateTime: 'Hôm nay - 14:00', price: 250000 });
-  };
-
-  const handleAddTechnician = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTechForm.name.trim()) return;
-    const newTech: AdminTechnician = {
-      id: `tech-${Date.now()}`,
-      code: `TECH-00${technicians.length + 1}`,
-      name: newTechForm.name,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
-      skill: newTechForm.skill,
-      completedOrders: 0,
-      rating: 5.0,
-      status: 'waiting',
-      phone: newTechForm.phone || '0900000000'
-    };
-    setTechnicians(prev => [newTech, ...prev]);
+    if (!newTechForm.first_name.trim() || !newTechForm.last_name.trim()) return;
+    const { adminService } = await import("../services/adminService");
+    if (editingTechId) {
+      const success = await adminService.updateTechnician(editingTechId, newTechForm);
+      if (success) {
+        setTechnicians(prev => prev.map(t => t.id === editingTechId ? { ...t, ...newTechForm } : t));
+      }
+    } else {
+      const success = await adminService.addTechnician(newTechForm);
+      if (success) {
+        const data = await adminService.fetchTechnicians();
+        setTechnicians(data);
+      }
+    }
     setIsAddTechModalOpen(false);
-    setNewTechForm({ name: '', phone: '', skill: 'Sửa chữa điều hòa' });
+    setEditingTechId(null);
+    setNewTechForm({ first_name: "", last_name: "", phone_number: "", email: "", password: "" });
   };
 
-  const handleAddService = (e: React.FormEvent) => {
+  const handleEditTechnician = (tech: AdminTechnician) => {
+    setEditingTechId(tech.id);
+    setNewTechForm({
+      first_name: tech.first_name,
+      last_name: tech.last_name,
+      phone_number: tech.phone_number,
+      email: tech.email,
+      password: ""
+    });
+    setIsAddTechModalOpen(true);
+  };
+
+  const handleDeleteTechnician = async (id: string) => {
+    const { adminService } = await import("../services/adminService");
+    const success = await adminService.deleteTechnician(id);
+    if (success) {
+      setTechnicians(prev => prev.filter(t => t.id !== id));
+    }
+  };
+
+  const handleViewTechHistory = async (id: string) => {
+    setViewingTechHistoryId(id);
+    setIsHistoryLoading(true);
+    const { adminService } = await import("../services/adminService");
+    const history = await adminService.fetchTechnicianHistory(id);
+    setTechHistory(history);
+    setIsHistoryLoading(false);
+  };
+
+
+  const handleSaveService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newServiceForm.name.trim()) return;
-    const newSrv: AdminService = {
-      id: `srv-${Date.now()}`,
-      name: newServiceForm.name,
-      category: newServiceForm.category,
-      deviceType: newServiceForm.deviceType,
-      price: Number(newServiceForm.price),
-      imageUrl: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=150'
-    };
-    setServices(prev => [...prev, newSrv]);
+    
+    const { adminService } = await import('../services/adminService');
+
+    if (editingServiceId) {
+      const updatedService = await adminService.updateAdminService(editingServiceId, {
+        name: newServiceForm.name,
+        service_type: newServiceForm.category,
+        device_type: newServiceForm.deviceType,
+        price: Number(newServiceForm.price),
+        note: newServiceForm.note
+      });
+      if (updatedService) {
+        setServices(prev => prev.map(s => s.id === editingServiceId ? updatedService : s));
+      }
+    } else {
+      const addedService = await adminService.addAdminService({
+        name: newServiceForm.name,
+        service_type: newServiceForm.category,
+        device_type: newServiceForm.deviceType,
+        price: Number(newServiceForm.price),
+        note: newServiceForm.note
+      });
+
+      if (addedService) {
+        setServices(prev => [addedService, ...prev]);
+      }
+    }
+    
     setIsAddServiceModalOpen(false);
-    setNewServiceForm({ name: '', category: 'Khẩn cấp', deviceType: 'Máy lạnh (AC)', price: 500000 });
+    setEditingServiceId(null);
+    setNewServiceForm({ name: '', category: 'suachua', deviceType: 'máy lạnh', price: 350000, note: '' });
   };
 
-  const handleDeleteService = (id: string) => {
-    setServices(prev => prev.filter(s => s.id !== id));
+  const handleEditService = (service: AdminService) => {
+    setEditingServiceId(service.id);
+    const serviceTypeInfo = getServiceTypeInfo(service.category);
+    setNewServiceForm({
+      name: service.name,
+      category: serviceTypeInfo.code || 'suachua',
+      deviceType: service.deviceType || 'máy lạnh',
+      price: service.price || 0,
+      note: service.note || ''
+    });
+    setIsAddServiceModalOpen(true);
+  };
+
+  const handleDeleteService = async (id: string) => {
+    const { adminService } = await import('../services/adminService');
+    const success = await adminService.deleteAdminService(id);
+    if (success) {
+      setServices(prev => prev.filter(s => s.id !== id));
+    }
+  };
+
+  // --- ORDER ACTION HANDLERS ---
+  const formatVND = (price: number) => {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(price);
+  };
+
+  const formatOrderDateTime = (dateStr?: string | null) => {
+    if (!dateStr) return 'Mới đặt';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${hours}:${minutes} - ${day}/${month}/${year}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const handleOpenOrderDetail = (order: AdminOrder) => {
+    setSelectedOrderForDetail(order);
+    const ids = order.assignedWorkers && order.assignedWorkers.length > 0
+      ? order.assignedWorkers.map(w => Number(w.workerId))
+      : (order.workerId ? [Number(order.workerId)] : []);
+    setModalAssignedWorkerIds(ids);
+    setAssignWorkerId('');
+
+    // Fetch review for this order if present
+    setOrderDetailReview(null);
+    setIsLoadingOrderReview(true);
+    commonService.checkOrderIsReviewed(order.id).then((res) => {
+      setIsLoadingOrderReview(false);
+      if (res.isReviewed && res.review) {
+        setOrderDetailReview(res.review);
+      } else {
+        setOrderDetailReview(null);
+      }
+    }).catch(() => {
+      setIsLoadingOrderReview(false);
+    });
+  };
+
+  const handleOpenAssignModal = (order: AdminOrder) => {
+    if (order.status === 'completed' || order.status === 'cancelled') {
+      alert(`Đơn hàng đã ${order.status === 'completed' ? 'hoàn thành' : 'hủy'}, không thể chỉnh sửa kỹ thuật viên.`);
+      return;
+    }
+    setAssigningOrder(order);
+    const ids = order.assignedWorkers && order.assignedWorkers.length > 0
+      ? order.assignedWorkers.map(w => Number(w.workerId))
+      : (order.workerId ? [Number(order.workerId)] : []);
+    setModalAssignedWorkerIds(ids);
+    setAssignWorkerId('');
+    setAssignModalTechSearch('');
+  };
+
+  const filteredTechsForAssignModal = useMemo(() => {
+    return technicians.filter(t => {
+      const fullName = `${t.last_name || ''} ${t.first_name || ''}`.toLowerCase();
+      const phone = (t.phone_number || '').toLowerCase();
+      const q = assignModalTechSearch.trim().toLowerCase();
+      return !q || fullName.includes(q) || phone.includes(q);
+    });
+  }, [technicians, assignModalTechSearch]);
+
+  const handleAddWorkerToModal = () => {
+    if (!assignWorkerId) return;
+    const wId = Number(assignWorkerId);
+    if (!modalAssignedWorkerIds.includes(wId)) {
+      setModalAssignedWorkerIds(prev => [...prev, wId]);
+      setAssignWorkerId('');
+    }
+  };
+
+  const handleRemoveWorkerFromModal = (wId: number) => {
+    setModalAssignedWorkerIds(prev => prev.filter(id => id !== wId));
+  };
+
+  const handleSaveAssignModal = async () => {
+    const targetOrder = assigningOrder || selectedOrderForDetail;
+    if (!targetOrder) return;
+
+    if (targetOrder.status === 'completed' || targetOrder.status === 'cancelled') {
+      alert(`Đơn hàng đã ${targetOrder.status === 'completed' ? 'hoàn thành' : 'hủy'}, không thể chỉnh sửa phân công kỹ thuật viên.`);
+      return;
+    }
+
+    if (modalAssignedWorkerIds.length === 0) {
+      if (!confirm('Chưa có kỹ thuật viên nào được chọn. Tiếp tục lưu sẽ chuyển đơn hàng về trạng thái chưa phân công. Bạn có chắc chắn?')) {
+        return;
+      }
+    }
+
+    setIsAssigning(true);
+    const { adminService } = await import('../services/adminService');
+    const res = await adminService.assignWorkersToOrder(targetOrder.id, modalAssignedWorkerIds);
+    setIsAssigning(false);
+
+    if (res.success) {
+      alert(`Lưu phân công kỹ thuật viên thành công! (${modalAssignedWorkerIds.length} KTV)`);
+      setAssigningOrder(null);
+      setSelectedOrderForDetail(null);
+      setAssignWorkerId('');
+      setModalAssignedWorkerIds([]);
+      loadAdminOrders();
+      loadTechnicians();
+    } else {
+      alert(`Có lỗi xảy ra khi phân công: ${res.message}`);
+    }
+  };
+
+  const handleAssignWorker = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await handleSaveAssignModal();
+  };
+
+  const handleUpdateOrderStatus = async (orderId: number, newStatus: 'pending' | 'verified' | 'completed' | 'cancelled') => {
+    if (newStatus === 'cancelled') {
+      const confirmCancel = window.confirm('Bạn có chắc chắn muốn hủy đơn hàng này không?');
+      if (!confirmCancel) return;
+    }
+    const { adminService } = await import('../services/adminService');
+    const res = await adminService.updateOrderStatus(orderId, newStatus);
+    if (res.success) {
+      alert('Cập nhật trạng thái đơn hàng thành công!');
+      if (selectedOrderForDetail && selectedOrderForDetail.id === orderId) {
+        setSelectedOrderForDetail(prev => prev ? {
+          ...prev,
+          status: newStatus,
+          statusText: newStatus === 'verified' ? 'Đã xác nhận & Phân công' : newStatus === 'completed' ? 'Hoàn thành' : newStatus === 'cancelled' ? 'Đã hủy' : 'Chờ xác nhận'
+        } : null);
+      }
+      loadAdminOrders();
+    } else {
+      alert('Lỗi cập nhật trạng thái: ' + res.message);
+    }
   };
 
   const handleExportReport = () => {
@@ -278,23 +604,70 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setReportNotification(null), 4000);
   };
 
-  // Filtered orders for current tab
-  const filteredOrders = adminOrders.filter(o => o.category === orderTab);
+  // Order Counts
+  const unconfirmedOrdersCount = adminOrders.filter(o => o.status === 'pending').length;
+  const needAssignOrdersCount = adminOrders.filter(o => !o.workerId || o.status === 'pending').length;
+  const verifiedOrdersCount = adminOrders.filter(o => o.status === 'verified').length;
+  const completedOrdersCount = adminOrders.filter(o => o.status === 'completed').length;
+
+  // Filtered orders for current search/date/status
+  const filteredAdminOrders = adminOrders.filter(order => {
+    // Search
+    const searchLower = orderSearch.trim().toLowerCase();
+    const matchesSearch = !searchLower ||
+      order.customerName.toLowerCase().includes(searchLower) ||
+      order.customerPhone.includes(searchLower) ||
+      order.orderCode.toLowerCase().includes(searchLower);
+
+    // Date filter YYYY-MM-DD
+    let matchesDate = true;
+    if (orderDateFilter.trim()) {
+      if (order.orderTime) {
+        const orderDateStr = new Date(order.orderTime).toISOString().split('T')[0];
+        matchesDate = orderDateStr === orderDateFilter.trim();
+      } else {
+        matchesDate = false;
+      }
+    }
+
+    // Status filter
+    let matchesStatus = true;
+    if (orderStatusFilter !== 'all') {
+      if (orderStatusFilter === 'unassigned') {
+        matchesStatus = !order.workerId || order.status === 'pending';
+      } else {
+        matchesStatus = order.status === orderStatusFilter;
+      }
+    }
+
+    return matchesSearch && matchesDate && matchesStatus;
+  });
 
   // Filtered technicians
   const filteredTechnicians = technicians.filter(t => {
-    const matchesSearch = t.name.toLowerCase().includes(techSearch.toLowerCase()) || t.code.toLowerCase().includes(techSearch.toLowerCase());
-    const matchesSkill = techSkillFilter === 'all' || t.skill === techSkillFilter;
-    const matchesStatus = techStatusFilter === 'all' || t.status === techStatusFilter;
-    return matchesSearch && matchesSkill && matchesStatus;
+    return (t.last_name + " " + t.first_name).toLowerCase().includes(techSearch.toLowerCase()) || (t.phone_number || "").includes(techSearch);
   });
 
+
   // Filtered customers
-  const filteredCustomers = customers.filter(c =>
-    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-    c.phone.includes(customerSearch) ||
-    c.email.toLowerCase().includes(customerSearch.toLowerCase())
-  );
+  const filteredCustomers = customers.filter(c => {
+    const searchLower = customerSearch.toLowerCase();
+    const matchesSearch = !searchLower ||
+      c.name.toLowerCase().includes(searchLower) ||
+      c.phone.includes(customerSearch) ||
+      c.email.toLowerCase().includes(searchLower) ||
+      c.address.toLowerCase().includes(searchLower);
+
+    const matchesProvince = !customerProvinceFilter.trim() ||
+      (c.province && c.province.toLowerCase().includes(customerProvinceFilter.toLowerCase())) ||
+      c.address.toLowerCase().includes(customerProvinceFilter.toLowerCase());
+
+    const matchesWard = !customerWardFilter.trim() ||
+      (c.ward && c.ward.toLowerCase().includes(customerWardFilter.toLowerCase())) ||
+      c.address.toLowerCase().includes(customerWardFilter.toLowerCase());
+
+    return matchesSearch && matchesProvince && matchesWard;
+  });
 
   return (
     <div className="bg-[#f9f9ff] text-[#141b2b] flex min-h-screen relative font-['Inter',sans-serif]">
@@ -312,15 +685,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } lg:translate-x-0 transition-transform duration-300 shadow-lg lg:shadow-none`}
       >
-        <div className="mb-8 px-3 flex items-center justify-between">
+        <div className="mb-8 px-2 flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-9 h-9 bg-[#005396] rounded-full flex items-center justify-center text-white shadow-sm">
-                <span className="material-symbols-outlined text-[22px]">ac_unit</span>
-              </div>
-              <h1 className="font-bold text-xl text-[#005396]">Climate Core</h1>
-            </div>
-            <p className="text-xs text-[#717783] font-medium pl-11">Engineering Trust</p>
+            <Logo size="sm" />
+            <p className="text-[11px] text-[#717783] font-medium pl-1 mt-0.5">Trang quản trị hệ thống</p>
           </div>
           <button
             className="lg:hidden p-1.5 text-[#414751] hover:bg-[#e1e8fd] rounded-lg transition-colors"
@@ -343,7 +711,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span className="material-symbols-outlined text-[22px]">receipt_long</span>
             <span className="flex-grow">Dịch vụ yêu cầu</span>
             <span className="bg-[#ba1a1a] text-white text-[11px] font-bold px-2 py-0.5 rounded-full">
-              {adminOrders.filter(o => o.category === 'unassigned').length}
+              {needAssignOrdersCount}
             </span>
           </button>
 
@@ -406,7 +774,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span>Về giao diện Khách</span>
           </button>
           <button
-            onClick={() => setActiveTab('auth')}
+            onClick={handleAdminLogout}
             className="flex items-center gap-3 text-[#ba1a1a] p-3 hover:bg-[#ffdad6] transition-all cursor-pointer min-h-[44px] rounded-xl font-bold text-sm w-full text-left"
           >
             <span className="material-symbols-outlined text-[22px]">logout</span>
@@ -440,12 +808,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex items-center gap-3 border-l border-[#c1c7d3]/50 pl-4">
                 <div className="text-right hidden md:block">
                   <p className="text-sm font-bold text-[#141b2b]">
-                    {user?.email ? user.email.split('@')[0] : 'Admin User'}
+                    {userProfile ? `${userProfile.last_name} ${userProfile.first_name}`.trim() : user?.email ? user.email.split('@')[0] : 'Admin User'}
                   </p>
                   <p className="text-xs text-[#717783] font-medium">Quản trị viên (Super Admin)</p>
                 </div>
-                <div className="w-10 h-10 rounded-full bg-[#0f6cbd] flex items-center justify-center text-white font-bold shadow-sm">
-                  AD
+                <div className="w-10 h-10 rounded-full bg-[#0f6cbd] flex items-center justify-center text-white font-bold shadow-sm uppercase">
+                  {userProfile?.first_name ? userProfile.first_name.charAt(0) : 'AD'}
                 </div>
               </div>
             </div>
@@ -459,193 +827,301 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* ========================================================= */}
           {adminSubTab === 'requests' && (
             <div className="space-y-6">
+              {/* Notification Banner */}
+              {(unconfirmedOrdersCount > 0 || needAssignOrdersCount > 0) && (
+                <div className="bg-[#fff4e5] border border-[#ff8a00]/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#ff8a00]/10 flex items-center justify-center text-[#ff8a00] shrink-0">
+                      <span className="material-symbols-outlined text-2xl">notifications_active</span>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-[#141b2b] text-sm">
+                        Cần xử lý: Có {unconfirmedOrdersCount} đơn chưa xác nhận
+                      </h4>
+                      <p className="text-xs text-[#717783] mt-0.5">
+                        Hiện có <strong>{unconfirmedOrdersCount}</strong> đơn mới chưa xác nhận và <strong>{needAssignOrdersCount}</strong> đơn chưa phân công kỹ thuật viên.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setOrderStatusFilter('pending')}
+                    className="px-4 py-2 bg-[#ff8a00] text-white rounded-xl text-xs font-bold hover:brightness-95 transition-all whitespace-nowrap cursor-pointer shadow-sm"
+                  >
+                    Xem đơn chưa xác nhận
+                  </button>
+                </div>
+              )}
+
               {/* Stats Overview */}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100">
-                  <p className="text-xs font-bold text-[#717783] uppercase tracking-wider mb-1">Tổng đơn hôm nay</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold text-[#141b2b]">24</span>
-                    <span className="text-xs text-green-600 font-bold">+12%</span>
+                <div className="bg-white p-5 rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-[#717783] uppercase tracking-wider mb-1">Đơn chưa xác nhận</p>
+                    <span className="text-3xl font-extrabold text-[#ba1a1a]">{unconfirmedOrdersCount}</span>
+                  </div>
+                  <div className="w-11 h-11 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-2xl">pending_actions</span>
                   </div>
                 </div>
-                <div className="bg-white p-5 rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100">
-                  <p className="text-xs font-bold text-[#717783] uppercase tracking-wider mb-1">Chưa phân công</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold text-[#914c00]">
-                      {adminOrders.filter(o => o.category === 'unassigned').length}
-                    </span>
+
+                <div className="bg-white p-5 rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-[#717783] uppercase tracking-wider mb-1">Chưa phân công KTV</p>
+                    <span className="text-3xl font-extrabold text-[#914c00]">{needAssignOrdersCount}</span>
+                  </div>
+                  <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-2xl">person_add</span>
                   </div>
                 </div>
-                <div className="bg-white p-5 rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100">
-                  <p className="text-xs font-bold text-[#717783] uppercase tracking-wider mb-1">Đang thực hiện</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold text-[#005396]">
-                      {adminOrders.filter(o => o.category === 'processing').length}
-                    </span>
+
+                <div className="bg-white p-5 rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-[#717783] uppercase tracking-wider mb-1">Đã xác nhận & Phân công</p>
+                    <span className="text-3xl font-extrabold text-[#005396]">{verifiedOrdersCount}</span>
+                  </div>
+                  <div className="w-11 h-11 rounded-xl bg-blue-50 text-[#005396] flex items-center justify-center">
+                    <span className="material-symbols-outlined text-2xl">verified</span>
                   </div>
                 </div>
-                <div className="bg-white p-5 rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100">
-                  <p className="text-xs font-bold text-[#717783] uppercase tracking-wider mb-1">Hoàn thành</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-extrabold text-green-600">
-                      {adminOrders.filter(o => o.category === 'completed').length}
-                    </span>
+
+                <div className="bg-white p-5 rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold text-[#717783] uppercase tracking-wider mb-1">Đã hoàn thành</p>
+                    <span className="text-3xl font-extrabold text-green-600">{completedOrdersCount}</span>
+                  </div>
+                  <div className="w-11 h-11 rounded-xl bg-green-50 text-green-600 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-2xl">task_alt</span>
                   </div>
                 </div>
               </div>
 
               {/* Main Orders Table Card */}
               <div className="bg-white rounded-2xl shadow-[0px_4px_20px_rgba(0,0,0,0.05)] border border-gray-100 flex flex-col min-h-[500px]">
-                {/* Tab Navigation & Controls */}
-                <div className="px-4 md:px-6 pt-5 border-b border-[#c1c7d3]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3">
-                  <div className="flex gap-4 overflow-x-auto whitespace-nowrap">
-                    <button
-                      onClick={() => setOrderTab('unassigned')}
-                      className={`pb-3 text-sm font-bold transition-all border-b-2 cursor-pointer ${
-                        orderTab === 'unassigned'
-                          ? 'border-[#005396] text-[#005396]'
-                          : 'border-transparent text-[#717783] hover:text-[#005396]'
-                      }`}
+                {/* Search & Filter Header Bar */}
+                <div className="p-4 md:p-5 border-b border-gray-100 bg-[#f1f3ff]/30 flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+                  <div className="flex flex-col sm:flex-row gap-3 flex-1 items-stretch sm:items-center">
+                    {/* Search Input */}
+                    <div className="relative flex-1">
+                      <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#717783]">search</span>
+                      <input
+                        type="text"
+                        value={orderSearch}
+                        onChange={(e) => setOrderSearch(e.target.value)}
+                        placeholder="Tìm kiếm theo tên khách hàng, SĐT, mã đơn..."
+                        className="w-full pl-10 pr-4 py-2 border border-[#c1c7d3] rounded-xl text-sm focus:border-[#005396] outline-none bg-white"
+                      />
+                    </div>
+
+                    {/* Date Picker Filter */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-[#717783] whitespace-nowrap">Lọc theo ngày:</span>
+                      <input
+                        type="date"
+                        value={orderDateFilter}
+                        onChange={(e) => setOrderDateFilter(e.target.value)}
+                        className="px-3 py-2 border border-[#c1c7d3] rounded-xl text-xs font-semibold text-[#141b2b] bg-white outline-none focus:border-[#005396]"
+                      />
+                      {orderDateFilter && (
+                        <button
+                          onClick={() => setOrderDateFilter('')}
+                          className="text-xs text-[#ba1a1a] font-bold hover:underline whitespace-nowrap cursor-pointer"
+                        >
+                          Xóa ngày
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Status Dropdown Filter */}
+                    <select
+                      value={orderStatusFilter}
+                      onChange={(e) => setOrderStatusFilter(e.target.value)}
+                      className="px-3 py-2 border border-[#c1c7d3] rounded-xl text-xs font-semibold text-[#141b2b] bg-white outline-none focus:border-[#005396]"
                     >
-                      Chưa phân công ({adminOrders.filter(o => o.category === 'unassigned').length})
-                    </button>
-                    <button
-                      onClick={() => setOrderTab('processing')}
-                      className={`pb-3 text-sm font-bold transition-all border-b-2 cursor-pointer ${
-                        orderTab === 'processing'
-                          ? 'border-[#005396] text-[#005396]'
-                          : 'border-transparent text-[#717783] hover:text-[#005396]'
-                      }`}
-                    >
-                      Đang xử lý ({adminOrders.filter(o => o.category === 'processing').length})
-                    </button>
-                    <button
-                      onClick={() => setOrderTab('completed')}
-                      className={`pb-3 text-sm font-bold transition-all border-b-2 cursor-pointer ${
-                        orderTab === 'completed'
-                          ? 'border-[#005396] text-[#005396]'
-                          : 'border-transparent text-[#717783] hover:text-[#005396]'
-                      }`}
-                    >
-                      Đã hoàn thành ({adminOrders.filter(o => o.category === 'completed').length})
-                    </button>
+                      <option value="all">Tất cả trạng thái</option>
+                      <option value="pending">Chờ xác nhận ({unconfirmedOrdersCount})</option>
+                      <option value="unassigned">Chưa phân công KTV ({needAssignOrdersCount})</option>
+                      <option value="verified">Đã xác nhận ({verifiedOrdersCount})</option>
+                      <option value="completed">Đã hoàn thành ({completedOrdersCount})</option>
+                      <option value="cancelled">Đã hủy</option>
+                    </select>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setIsNewOrderModalOpen(true)}
-                      className="flex items-center justify-center gap-1 px-4 py-2 bg-[#ff8a00] text-white font-bold rounded-xl text-sm hover:brightness-95 transition-all shadow-sm cursor-pointer"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">add</span> Đơn mới
-                    </button>
+                  <div className="flex items-center gap-2 text-xs text-[#717783] font-medium self-end lg:self-center">
+                    <span>Hiển thị: <strong>{filteredAdminOrders.length}</strong> / {adminOrders.length} đơn</span>
                   </div>
                 </div>
 
-                {/* Desktop Orders Table */}
-                <div className="hidden md:block overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[750px]">
-                    <thead>
-                      <tr className="bg-[#f1f3ff]/50 border-b border-gray-100">
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Mã đơn</th>
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Khách hàng</th>
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Dịch vụ</th>
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Ngày/Giờ</th>
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Kỹ thuật viên</th>
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Trạng thái</th>
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Thao tác</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {filteredOrders.map((order) => (
-                        <tr key={order.id} className="hover:bg-[#f1f3ff]/40 transition-colors">
-                          <td className="p-4 font-bold text-[#005396]">{order.id}</td>
-                          <td className="p-4 font-semibold text-[#141b2b]">{order.customer}</td>
-                          <td className="p-4 text-[#414751] font-medium">{order.service}</td>
-                          <td className="p-4 text-[#414751] font-medium">{order.date}</td>
-                          <td className="p-4">
-                            <span className={order.tech === 'Chưa chỉ định' ? 'text-[#717783] italic' : 'font-semibold text-[#141b2b] flex items-center gap-1'}>
-                              {order.tech !== 'Chưa chỉ định' && <span className="material-symbols-outlined text-[18px] text-[#005396]">person</span>}
-                              {order.tech}
-                            </span>
-                          </td>
-                          <td className="p-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${
-                              order.category === 'unassigned' ? 'bg-orange-100 text-orange-700' :
-                              order.category === 'processing' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                {/* Loading state */}
+                {isOrdersLoading ? (
+                  <div className="p-12 text-center text-[#717783] flex flex-col items-center justify-center gap-2">
+                    <span className="material-symbols-outlined animate-spin text-3xl text-[#005396]">sync</span>
+                    <p className="text-sm font-semibold">Đang tải danh sách đơn hàng từ csdl...</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Desktop Orders Table */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[850px]">
+                        <thead>
+                          <tr className="bg-[#f1f3ff]/60 border-b border-gray-100">
+                            <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Khách hàng & Mã đơn</th>
+                            <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Thời gian đặt</th>
+                            <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Lịch hẹn & Ca làm</th>
+                            <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Trạng thái</th>
+                            <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider">Kỹ thuật viên</th>
+                            <th className="p-4 text-xs text-[#717783] font-bold uppercase tracking-wider text-right">Thao tác</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {filteredAdminOrders.map((order) => (
+                            <tr key={order.id} className="hover:bg-[#f1f3ff]/40 transition-colors">
+                              <td className="p-4">
+                                <div className="font-bold text-[#141b2b] text-sm">{order.customerName}</div>
+                                <div className="text-xs text-[#717783] flex items-center gap-1.5 mt-0.5">
+                                  <span className="font-extrabold text-[#005396] bg-blue-50 px-1.5 py-0.5 rounded">{order.orderCode}</span>
+                                  <span>•</span>
+                                  <span>{order.customerPhone}</span>
+                                </div>
+                              </td>
+                              <td className="p-4 text-xs font-semibold text-[#414751]">
+                                {formatOrderDateTime(order.orderTime)}
+                              </td>
+                              <td className="p-4 text-xs text-[#414751]">
+                                <div className="font-bold text-[#141b2b]">{order.appointmentTime || 'Chưa xếp ngày'}</div>
+                                <div className="text-[11px] text-[#717783] mt-0.5">{order.timeSlot}</div>
+                              </td>
+                              <td className="p-4">
+                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap inline-flex items-center gap-1 ${
+                                  order.status === 'pending' ? 'bg-amber-100 text-amber-800' :
+                                  order.status === 'verified' ? 'bg-blue-100 text-blue-800' :
+                                  order.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                }`}>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                                  {order.statusText}
+                                </span>
+                              </td>
+                              <td className="p-4">
+                                {order.assignedWorkers && order.assignedWorkers.length > 0 ? (
+                                  <div className="flex flex-col gap-1">
+                                    {order.assignedWorkers.map((w) => (
+                                      <div key={w.workerId} className="flex items-center gap-1.5 text-xs font-bold text-[#141b2b]">
+                                        <span className="material-symbols-outlined text-[16px] text-[#005396]">engineering</span>
+                                        <span>{w.workerName}</span>
+                                        <span className="text-[#d97706] font-extrabold text-[11px] bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/80 inline-flex items-center gap-0.5">
+                                          ⭐ {Number(w.workerStars || 5).toFixed(1)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : order.workerId ? (
+                                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#141b2b]">
+                                    <span className="material-symbols-outlined text-[18px] text-[#005396]">engineering</span>
+                                    <span>{order.workerName}</span>
+                                    <span className="text-[#d97706] font-extrabold text-[11px] bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/80 inline-flex items-center gap-0.5">
+                                      ⭐ {Number(order.workerStars || 5).toFixed(1)}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold italic inline-block">
+                                    Chưa phân công
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenAssignModal(order)}
+                                    className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-sm hover:brightness-95 active:scale-95 transition-all whitespace-nowrap cursor-pointer inline-flex items-center gap-1"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">engineering</span>
+                                    <span>Giao việc ({order.assignedWorkers?.length || (order.workerId ? 1 : 0)})</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenOrderDetail(order)}
+                                    className="bg-[#005396] hover:bg-[#003d70] text-white px-3 py-1.5 rounded-xl text-xs font-bold shadow-sm hover:brightness-95 active:scale-95 transition-all whitespace-nowrap cursor-pointer inline-flex items-center gap-1"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">visibility</span>
+                                    <span>Chi tiết</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                          {filteredAdminOrders.length === 0 && (
+                            <tr>
+                              <td colSpan={6} className="p-12 text-center text-[#717783]">
+                                <span className="material-symbols-outlined text-4xl text-gray-300 block mb-2">inbox</span>
+                                Không tìm thấy đơn hàng nào phù hợp với bộ lọc.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Orders Cards */}
+                    <div className="md:hidden flex flex-col p-4 space-y-3">
+                      {filteredAdminOrders.map((order) => (
+                        <div key={order.id} className="bg-white border border-[#c1c7d3]/40 rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="font-extrabold text-[#005396] text-xs bg-blue-50 px-2 py-0.5 rounded">{order.orderCode}</span>
+                              <h4 className="font-bold text-[#141b2b] text-base mt-1">{order.customerName}</h4>
+                              <p className="text-xs text-[#717783]">{order.customerPhone}</p>
+                            </div>
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                              order.status === 'pending' ? 'bg-amber-100 text-amber-800' :
+                              order.status === 'verified' ? 'bg-blue-100 text-blue-800' :
+                              order.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                             }`}>
-                              {order.status}
+                              {order.statusText}
                             </span>
-                          </td>
-                          <td className="p-4">
-                            {order.category === 'unassigned' ? (
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs bg-[#f8f9ff] p-2.5 rounded-lg border border-gray-100">
+                            <div>
+                              <span className="block text-[#717783] text-[11px]">Thời gian đặt:</span>
+                              <span className="font-semibold text-[#141b2b]">{formatOrderDateTime(order.orderTime)}</span>
+                            </div>
+                            <div>
+                              <span className="block text-[#717783] text-[11px]">Lịch hẹn:</span>
+                              <span className="font-semibold text-[#141b2b]">{order.appointmentTime || 'Chưa xếp ngày'}</span>
+                            </div>
+                          </div>
+
+                          <div className="pt-2 border-t border-gray-100 flex flex-wrap justify-between items-center gap-2">
+                            <span className="text-xs text-[#717783]">
+                              KTV: <strong className="text-[#141b2b]">
+                                {order.assignedWorkers && order.assignedWorkers.length > 0
+                                  ? order.assignedWorkers.map(w => `${w.workerName} (⭐${Number(w.workerStars || 5).toFixed(1)})`).join(', ')
+                                  : (order.workerName || 'Chưa phân công')}
+                              </strong>
+                            </span>
+                            <div className="flex items-center gap-1.5 ml-auto">
                               <button
-                                onClick={() => setSelectedOrderForAssign(order.id)}
-                                className="bg-[#005396] text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm hover:brightness-95 active:scale-95 transition-all whitespace-nowrap cursor-pointer"
+                                onClick={() => handleOpenAssignModal(order)}
+                                className="bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
                               >
                                 Giao việc
                               </button>
-                            ) : (
-                              <span className="text-xs font-semibold text-[#005396]">Đã phân công</span>
-                            )}
-                          </td>
-                        </tr>
+                              <button
+                                onClick={() => handleOpenOrderDetail(order)}
+                                className="bg-[#005396] hover:bg-[#003d70] text-white px-2.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+                              >
+                                Chi tiết
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       ))}
-                      {filteredOrders.length === 0 && (
-                        <tr>
-                          <td colSpan={7} className="p-8 text-center text-[#717783]">
-                            Không có đơn hàng nào trong danh mục này.
-                          </td>
-                        </tr>
+                      {filteredAdminOrders.length === 0 && (
+                        <div className="p-8 text-center text-[#717783] text-sm">
+                          Không tìm thấy đơn hàng nào.
+                        </div>
                       )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Mobile Orders Cards */}
-                <div className="md:hidden flex flex-col p-4 space-y-3">
-                  {filteredOrders.map((order) => (
-                    <div key={order.id} className="bg-white border border-[#c1c7d3]/40 rounded-xl p-4 flex flex-col gap-2 shadow-sm">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="font-bold text-[#005396]">{order.id}</span>
-                          <h4 className="font-semibold text-[#141b2b] mt-0.5">{order.customer}</h4>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                          order.category === 'unassigned' ? 'bg-orange-100 text-orange-700' :
-                          order.category === 'processing' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-                        }`}>
-                          {order.status}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <span className="block text-[#717783]">Dịch vụ</span>
-                          <span className="font-medium text-[#141b2b]">{order.service}</span>
-                        </div>
-                        <div>
-                          <span className="block text-[#717783]">Thời gian</span>
-                          <span className="font-medium text-[#141b2b]">{order.date}</span>
-                        </div>
-                      </div>
-                      <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
-                        <span className="text-xs text-[#717783]">KTV: <strong className="text-[#141b2b]">{order.tech}</strong></span>
-                        {order.category === 'unassigned' && (
-                          <button
-                            onClick={() => setSelectedOrderForAssign(order.id)}
-                            className="bg-[#005396] text-white px-3 py-1 rounded-lg text-xs font-bold cursor-pointer"
-                          >
-                            Giao việc
-                          </button>
-                        )}
-                      </div>
                     </div>
-                  ))}
-                  {filteredOrders.length === 0 && (
-                    <div className="p-6 text-center text-[#717783] text-sm">
-                      Không có đơn hàng nào.
-                    </div>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -670,143 +1146,113 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
 
               {/* Stats Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Top Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                   <div className="flex items-center justify-between mb-2">
                     <span className="material-symbols-outlined p-2 bg-blue-50 text-[#005396] rounded-xl">engineering</span>
-                    <span className="text-xs text-[#717783] font-bold">Tổng cộng</span>
+                    <span className="text-xs text-[#717783] font-bold">Tổng kỹ thuật viên</span>
                   </div>
                   <div className="text-3xl font-extrabold text-[#141b2b]">{technicians.length}</div>
-                  <p className="text-green-600 text-xs font-bold mt-1">+2 tháng này</p>
                 </div>
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="material-symbols-outlined p-2 bg-orange-50 text-[#ff8a00] rounded-xl">bolt</span>
-                    <span className="text-xs text-[#717783] font-bold">Đang làm việc</span>
+                    <span className="material-symbols-outlined p-2 bg-amber-50 text-amber-600 rounded-xl">star</span>
+                    <span className="text-xs text-[#717783] font-bold">Đánh giá trung bình</span>
                   </div>
                   <div className="text-3xl font-extrabold text-[#141b2b]">
-                    {technicians.filter(t => t.status === 'working').length}
+                    {technicians.length > 0
+                      ? (technicians.reduce((acc, t) => acc + Number(t.stars || 5), 0) / technicians.length).toFixed(1)
+                      : '5.0'} ⭐
                   </div>
-                  <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2">
-                    <div className="bg-[#ff8a00] h-full rounded-full" style={{ width: '60%' }}></div>
-                  </div>
-                </div>
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="material-symbols-outlined p-2 bg-gray-100 text-[#414751] rounded-xl">event_busy</span>
-                    <span className="text-xs text-[#717783] font-bold">Đang nghỉ</span>
-                  </div>
-                  <div className="text-3xl font-extrabold text-[#141b2b]">
-                    {technicians.filter(t => t.status === 'leave').length}
-                  </div>
-                  <p className="text-[#717783] text-xs font-medium mt-1">Lịch trình sẵn sàng</p>
-                </div>
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="material-symbols-outlined p-2 bg-indigo-50 text-indigo-600 rounded-xl">pending_actions</span>
-                    <span className="text-xs text-[#717783] font-bold">Đang chờ</span>
-                  </div>
-                  <div className="text-3xl font-extrabold text-[#141b2b]">
-                    {technicians.filter(t => t.status === 'waiting').length}
-                  </div>
-                  <p className="text-[#ff8a00] text-xs font-bold mt-1">Cần phân bổ</p>
                 </div>
               </div>
 
               {/* Filters & Table Card */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="p-4 border-b border-gray-100 bg-[#f1f3ff]/30 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-                  <div className="flex flex-col sm:flex-row gap-3 flex-1">
-                    <div className="relative flex-1">
-                      <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#717783]">search</span>
-                      <input
-                        type="text"
-                        value={techSearch}
-                        onChange={(e) => setTechSearch(e.target.value)}
-                        placeholder="Tìm theo tên hoặc ID..."
-                        className="w-full pl-10 pr-4 py-2 border border-[#c1c7d3] rounded-xl text-sm focus:border-[#005396] outline-none"
-                      />
-                    </div>
-                    <select
-                      value={techSkillFilter}
-                      onChange={(e) => setTechSkillFilter(e.target.value)}
-                      className="px-3 py-2 border border-[#c1c7d3] rounded-xl text-sm font-semibold text-[#414751]"
-                    >
-                      <option value="all">Kỹ năng (Tất cả)</option>
-                      <option value="Sửa chữa điều hòa">Sửa chữa điều hòa</option>
-                      <option value="Lắp đặt hệ thống">Lắp đặt hệ thống</option>
-                      <option value="Bảo trì định kỳ">Bảo trì định kỳ</option>
-                    </select>
-                    <select
-                      value={techStatusFilter}
-                      onChange={(e) => setTechStatusFilter(e.target.value)}
-                      className="px-3 py-2 border border-[#c1c7d3] rounded-xl text-sm font-semibold text-[#414751]"
-                    >
-                      <option value="all">Trạng thái (Tất cả)</option>
-                      <option value="working">Đang làm việc</option>
-                      <option value="waiting">Đang chờ</option>
-                      <option value="leave">Đang nghỉ</option>
-                    </select>
+                  <div className="relative flex-1">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#717783]">search</span>
+                    <input
+                      type="text"
+                      value={techSearch}
+                      onChange={(e) => setTechSearch(e.target.value)}
+                      placeholder="Tìm theo tên hoặc SĐT kỹ thuật viên..."
+                      className="w-full pl-10 pr-4 py-2 border border-[#c1c7d3] rounded-xl text-sm focus:border-[#005396] outline-none"
+                    />
                   </div>
                 </div>
 
                 {/* Table */}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[700px]">
+                  <table className="w-full text-left border-collapse min-w-[600px]">
                     <thead>
                       <tr className="bg-[#f1f3ff]/50 border-b border-gray-100">
                         <th className="p-4 text-xs text-[#717783] font-bold uppercase">Kỹ thuật viên</th>
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase">Kỹ năng chính</th>
                         <th className="p-4 text-xs text-[#717783] font-bold uppercase text-center">Đơn hoàn thành</th>
                         <th className="p-4 text-xs text-[#717783] font-bold uppercase">Đánh giá</th>
-                        <th className="p-4 text-xs text-[#717783] font-bold uppercase">Trạng thái</th>
+                        <th className="p-4 text-xs text-[#717783] font-bold uppercase text-right">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {filteredTechnicians.map((tech) => (
-                        <tr key={tech.id} className="hover:bg-[#f1f3ff]/30 transition-colors">
-                          <td className="p-4">
-                            <div className="flex items-center gap-3">
-                              <img src={tech.avatar} alt={tech.name} className="w-10 h-10 rounded-full object-cover border border-gray-200" />
-                              <div>
-                                <div className="font-bold text-[#141b2b]">{tech.name}</div>
-                                <div className="text-xs text-[#717783]">{tech.code} • {tech.phone}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <span className="px-3 py-1 bg-[#dce2f7] text-[#141b2b] rounded-full text-xs font-medium">
-                              {tech.skill}
-                            </span>
-                          </td>
-                          <td className="p-4 text-center font-bold text-[#141b2b]">
-                            {tech.completedOrders}
-                          </td>
-                          <td className="p-4">
-                            <div className="flex items-center gap-1 font-bold text-[#141b2b]">
-                              <span className="material-symbols-outlined text-[18px] text-[#ff8a00] fill-1">star</span>
-                              <span>{tech.rating}</span>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            {tech.status === 'working' && (
-                              <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-xs font-bold inline-flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" /> Đang làm việc
-                              </span>
-                            )}
-                            {tech.status === 'waiting' && (
-                              <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold inline-flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-blue-500" /> Đang chờ
-                              </span>
-                            )}
-                            {tech.status === 'leave' && (
-                              <span className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-bold inline-flex items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-gray-400" /> Đang nghỉ
-                              </span>
-                            )}
+                      {isTechLoading ? (
+                        <tr>
+                          <td colSpan={4} className="p-8 text-center text-[#717783] text-sm font-semibold">
+                            Đang tải dữ liệu...
                           </td>
                         </tr>
-                      ))}
+                      ) : filteredTechnicians.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-8 text-center text-[#717783] text-sm font-semibold">
+                            Không tìm thấy kỹ thuật viên nào
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredTechnicians.map((tech) => (
+                          <tr key={tech.id} className="hover:bg-[#f1f3ff]/30 transition-colors">
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <img src={tech.avatar} alt={`${tech.last_name} ${tech.first_name}`} className="w-10 h-10 rounded-full object-cover border border-gray-200" />
+                                <div>
+                                  <div className="font-bold text-[#141b2b]">{tech.last_name} {tech.first_name}</div>
+                                  <div className="text-xs text-[#717783]">{tech.phone_number} • {tech.email}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-4 text-center font-bold text-[#141b2b]">
+                              {tech.completedOrders}
+                            </td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-1 font-bold text-[#141b2b]">
+                                <span className="material-symbols-outlined text-[18px] text-[#ff8a00] fill-1">star</span>
+                                <span>{Number(tech.stars || 5).toFixed(1)}</span>
+                              </div>
+                            </td>
+                            <td className="p-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  onClick={() => handleViewTechHistory(tech.id)}
+                                  className="px-3 py-1 bg-[#dce2f7] text-[#005396] hover:bg-[#d3e3ff] rounded-full text-xs font-bold transition-colors cursor-pointer"
+                                >
+                                  Lịch sử
+                                </button>
+                                <button
+                                  onClick={() => handleEditTechnician(tech)}
+                                  className="px-3 py-1 bg-gray-100 text-[#414751] hover:bg-gray-200 rounded-full text-xs font-bold transition-colors cursor-pointer"
+                                >
+                                  Sửa
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteTechnician(tech.id)}
+                                  className="px-3 py-1 bg-red-50 text-red-600 hover:bg-red-100 rounded-full text-xs font-bold transition-colors cursor-pointer"
+                                >
+                                  Xóa
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -819,23 +1265,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {/* ========================================================= */}
           {adminSubTab === 'customers' && (
             <div className="space-y-6">
-              <div>
-                <p className="text-sm text-[#717783]">Theo dõi và chăm sóc các mối quan hệ khách hàng trong hệ thống Climate Core.</p>
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <div>
+                  <h2 className="text-xl font-bold text-[#141b2b]">Quản lý khách hàng</h2>
+                  <p className="text-sm text-[#717783]">Quản lý danh sách khách hàng, thông tin cá nhân và lịch sử đặt lịch dịch vụ.</p>
+                </div>
+                <button
+                  onClick={() => setIsAddCustomerModalOpen(true)}
+                  className="px-4 py-2.5 bg-[#005396] text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:bg-[#005396]/90 transition-all cursor-pointer shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-[20px]">person_add</span>
+                  Thêm khách hàng mới
+                </button>
               </div>
 
               {/* Stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
                   <div>
                     <p className="text-xs font-bold text-[#717783] mb-1">Tổng khách hàng</p>
-                    <h3 className="text-2xl font-extrabold text-[#141b2b]">1,250</h3>
-                    <p className="text-xs text-green-600 font-bold flex items-center gap-1 mt-1">
-                      <span class="material-symbols-outlined text-[16px]">trending_up</span>
-                      +5% tháng này
-                    </p>
+                    <h3 className="text-2xl font-extrabold text-[#141b2b]">{customers.length}</h3>
+                    <p className="text-xs text-blue-600 font-semibold mt-1">Hệ thống Điện lạnh Công Thương</p>
                   </div>
                   <div className="bg-[#005396]/10 p-3 rounded-2xl text-[#005396]">
-                    <span className="material-symbols-outlined text-[32px]">group</span>
+                    <span className="material-symbols-outlined text-[28px]">group</span>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+                  <div>
+                    <p className="text-xs font-bold text-[#717783] mb-1">Đã có tài khoản</p>
+                    <h3 className="text-2xl font-extrabold text-green-600">{customers.filter(c => c.hasAccount).length}</h3>
+                    <p className="text-xs text-gray-500 font-semibold mt-1">Có email/mật khẩu</p>
+                  </div>
+                  <div className="bg-green-50 p-3 rounded-2xl text-green-600">
+                    <span className="material-symbols-outlined text-[28px]">verified_user</span>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex justify-between items-center">
+                  <div>
+                    <p className="text-xs font-bold text-[#717783] mb-1">Khách vãng lai</p>
+                    <h3 className="text-2xl font-extrabold text-amber-600">{customers.filter(c => !c.hasAccount).length}</h3>
+                    <p className="text-xs text-amber-600 font-semibold mt-1">Chưa tạo tài khoản</p>
+                  </div>
+                  <div className="bg-amber-50 p-3 rounded-2xl text-amber-600">
+                    <span className="material-symbols-outlined text-[28px]">person_off</span>
                   </div>
                 </div>
               </div>
@@ -848,90 +1323,138 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="text"
                     value={customerSearch}
                     onChange={(e) => setCustomerSearch(e.target.value)}
-                    placeholder="Tìm kiếm tên, SĐT, email..."
-                    className="w-full pl-10 pr-4 py-2 border border-[#c1c7d3] rounded-xl text-sm focus:border-[#005396] outline-none"
+                    placeholder="Tìm kiếm tên, số điện thoại, email..."
+                    className="w-full pl-10 pr-4 py-2.5 border border-[#c1c7d3] rounded-xl text-sm focus:border-[#005396] outline-none"
                   />
                 </div>
+                <div className="w-full md:w-56 relative">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#717783]">location_city</span>
+                  <input
+                    type="text"
+                    value={customerProvinceFilter}
+                    onChange={(e) => setCustomerProvinceFilter(e.target.value)}
+                    placeholder="Lọc Tỉnh / Thành phố..."
+                    className="w-full pl-10 pr-4 py-2.5 border border-[#c1c7d3] rounded-xl text-sm focus:border-[#005396] outline-none"
+                  />
+                </div>
+                <div className="w-full md:w-56 relative">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#717783]">map</span>
+                  <input
+                    type="text"
+                    value={customerWardFilter}
+                    onChange={(e) => setCustomerWardFilter(e.target.value)}
+                    placeholder="Lọc Phường / Xã..."
+                    className="w-full pl-10 pr-4 py-2.5 border border-[#c1c7d3] rounded-xl text-sm focus:border-[#005396] outline-none"
+                  />
+                </div>
+                {(customerSearch || customerProvinceFilter || customerWardFilter) && (
+                  <button
+                    onClick={() => {
+                      setCustomerSearch('');
+                      setCustomerProvinceFilter('');
+                      setCustomerWardFilter('');
+                    }}
+                    className="px-3 py-2.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs font-bold transition-colors cursor-pointer shrink-0 flex items-center justify-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">close</span>
+                    Xóa lọc
+                  </button>
+                )}
               </div>
 
-              {/* Desktop Table */}
+              {/* Table */}
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[700px]">
+                  <table className="w-full text-left border-collapse min-w-[750px]">
                     <thead>
                       <tr className="bg-[#f1f3ff]/50 border-b border-gray-100">
-                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Khách hàng</th>
-                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Liên hệ</th>
-                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Số đơn</th>
-                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Dịch vụ cuối</th>
+                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Tên khách hàng</th>
+                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Số điện thoại</th>
+                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Email liên hệ</th>
+                        <th className="p-4 text-xs font-bold text-[#717783] uppercase text-center">Tài khoản</th>
                         <th className="p-4 text-xs font-bold text-[#717783] uppercase text-right">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {filteredCustomers.map((cust) => {
-                        const isExpanded = expandedCustomerHistory === cust.id;
-                        return (
-                          <React.Fragment key={cust.id}>
-                            <tr className="hover:bg-[#f1f3ff]/30 transition-colors">
-                              <td className="p-4">
-                                <div className="flex items-center gap-3">
-                                  <img src={cust.avatar} alt={cust.name} className="w-10 h-10 rounded-full object-cover border border-blue-200" />
-                                  <div>
-                                    <p className="font-bold text-[#141b2b]">{cust.name}</p>
-                                    <p className="text-xs text-[#717783]">ID: {cust.code}</p>
-                                  </div>
+                      {isCustomersLoading ? (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-[#717783] text-sm font-semibold">
+                            Đang tải dữ liệu khách hàng...
+                          </td>
+                        </tr>
+                      ) : filteredCustomers.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-[#717783] text-sm font-semibold">
+                            Không tìm thấy khách hàng nào phù hợp.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredCustomers.map((cust) => (
+                          <tr key={cust.id} className="hover:bg-[#f1f3ff]/30 transition-colors">
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <img src={cust.avatar} alt={cust.name} className="w-10 h-10 rounded-full object-cover border border-blue-200" />
+                                <div>
+                                  <p className="font-bold text-[#141b2b]">{cust.name}</p>
                                 </div>
-                              </td>
-                              <td className="p-4">
-                                <p className="font-semibold text-[#141b2b] text-sm">{cust.phone}</p>
-                                <p className="text-xs text-[#717783]">{cust.email}</p>
-                              </td>
-                              <td className="p-4">
-                                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-[#d3e3ff] text-[#001c39] font-bold text-xs">
-                                  {cust.totalOrders}
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <p className="font-bold text-[#141b2b] text-sm">{cust.phone}</p>
+                            </td>
+                            <td className="p-4">
+                              <p className="text-sm text-[#414751]">{cust.email}</p>
+                            </td>
+                            <td className="p-4 text-center">
+                              {cust.hasAccount ? (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700 border border-green-200">
+                                  Đã tạo
                                 </span>
-                              </td>
-                              <td className="p-4">
-                                <p className="font-semibold text-[#141b2b] text-sm">{cust.lastServiceDate}</p>
-                                <p className="text-xs text-[#717783]">{cust.lastServiceType}</p>
-                              </td>
-                              <td className="p-4 text-right">
+                              ) : (
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                  Vãng lai
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4 text-right">
+                              <div className="flex justify-end items-center gap-1.5">
                                 <button
-                                  onClick={() => setExpandedCustomerHistory(isExpanded ? null : cust.id)}
-                                  className="px-4 py-1.5 bg-[#005396] text-white rounded-lg text-xs font-bold hover:bg-[#005396]/90 transition-colors cursor-pointer"
+                                  onClick={() => setSelectedCustomerDetail(cust)}
+                                  className="px-3 py-1.5 bg-[#dce2f7] text-[#005396] hover:bg-[#d3e3ff] rounded-full text-xs font-bold transition-colors cursor-pointer"
                                 >
-                                  {isExpanded ? 'Ẩn chi tiết' : 'Chi tiết'}
+                                  Chi tiết
                                 </button>
-                              </td>
-                            </tr>
-                            {isExpanded && (
-                              <tr className="bg-[#f1f3ff]/50">
-                                <td colSpan={5} className="p-4 border-l-4 border-[#005396]">
-                                  <div className="bg-white p-4 rounded-xl border border-gray-200 space-y-2 text-sm">
-                                    <p className="font-bold text-[#005396]">Thông tin chi tiết & Lịch sử:</p>
-                                    <p><strong>Địa chỉ:</strong> {cust.address}</p>
-                                    <p><strong>Tổng chi tiêu:</strong> {cust.totalSpend.toLocaleString('vi-VN')} VNĐ</p>
-                                    <p><strong>Ghi chú:</strong> <em>{cust.notes || 'Không có'}</em></p>
-                                  </div>
-                                </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
+                                <button
+                                  onClick={() => handleViewCustomerHistory(cust)}
+                                  className="px-3 py-1.5 bg-[#005396] text-white hover:bg-[#005396]/90 rounded-full text-xs font-bold transition-colors cursor-pointer"
+                                >
+                                  Lịch sử đặt lịch
+                                </button>
+                                {!cust.hasAccount && (
+                                  <>
+                                    <button
+                                      onClick={() => handleOpenEditGuestCustomer(cust)}
+                                      title="Chỉnh sửa thông tin khách hàng vãng lai"
+                                      className="p-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-full text-xs font-bold transition-colors cursor-pointer flex items-center justify-center"
+                                    >
+                                      <span className="material-symbols-outlined text-[16px]">edit</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteGuestCustomer(cust)}
+                                      title="Xóa khách hàng vãng lai"
+                                      className="p-1.5 text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-full text-xs font-bold transition-colors cursor-pointer flex items-center justify-center"
+                                    >
+                                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
-                </div>
-              </div>
-
-              {/* Maintenance Reminder Alert */}
-              <div className="bg-[#d3e3ff] p-4 rounded-2xl border border-blue-200 flex items-center gap-4">
-                <div className="bg-[#005396] text-white p-2 rounded-xl shrink-0">
-                  <span className="material-symbols-outlined">campaign</span>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-[#001c39]">Nhắc nhở bảo trì tự động</p>
-                  <p className="text-xs text-[#004883]">Có 12 khách hàng sắp đến hạn bảo trì định kỳ trong 7 ngày tới.</p>
                 </div>
               </div>
             </div>
@@ -953,7 +1476,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="p-2 bg-blue-100 text-[#005396] rounded-xl">
                       <span className="material-symbols-outlined">category</span>
                     </div>
-                    <span className="text-xs font-bold text-[#005396]">+2 mới</span>
                   </div>
                   <p className="text-xs font-bold text-[#717783]">Tổng số dịch vụ</p>
                   <p className="text-3xl font-extrabold text-[#141b2b]">{services.length}</p>
@@ -968,6 +1490,44 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
 
+              {/* Services Filter */}
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <div className="relative flex-1">
+                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#717783]">search</span>
+                  <input
+                    type="text"
+                    placeholder="Tìm kiếm theo tên dịch vụ, ghi chú..."
+                    value={serviceSearch}
+                    onChange={(e) => setServiceSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-[#c1c7d3] rounded-xl text-sm focus:outline-none focus:border-[#005396]"
+                  />
+                </div>
+                <select
+                  value={serviceTypeFilter}
+                  onChange={(e) => setServiceTypeFilter(e.target.value)}
+                  className="px-4 py-2 border border-[#c1c7d3] rounded-xl text-sm focus:outline-none focus:border-[#005396] font-medium"
+                >
+                  <option value="all">Tất cả loại dịch vụ ({services.length})</option>
+                  {SERVICE_TYPES.map(st => (
+                    <option key={st.code} value={st.code}>
+                      {st.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={deviceTypeFilter}
+                  onChange={(e) => setDeviceTypeFilter(e.target.value)}
+                  className="px-4 py-2 border border-[#c1c7d3] rounded-xl text-sm focus:outline-none focus:border-[#005396] font-medium capitalize"
+                >
+                  <option value="all">Tất cả thiết bị</option>
+                  <option value="máy lạnh">Máy lạnh</option>
+                  <option value="tủ lạnh">Tủ lạnh</option>
+                  <option value="máy giặt">Máy giặt</option>
+                  <option value="lò vi sóng">Lò vi sóng</option>
+                  <option value="máy nước nóng">Máy nước nóng</option>
+                </select>
+              </div>
+
               {/* Services Table */}
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
@@ -975,36 +1535,100 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <thead>
                       <tr className="bg-[#f1f3ff]/50 border-b border-gray-100">
                         <th className="p-4 text-xs font-bold text-[#717783] uppercase">Tên dịch vụ</th>
-                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Danh mục</th>
+                        <th className="p-4 text-xs font-bold text-[#717783] uppercase">Loại dịch vụ (service_type)</th>
                         <th className="p-4 text-xs font-bold text-[#717783] uppercase">Loại thiết bị</th>
                         <th className="p-4 text-xs font-bold text-[#717783] uppercase">Đơn giá (VNĐ)</th>
                         <th className="p-4 text-xs font-bold text-[#717783] uppercase text-right">Thao tác</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {services.map((srv) => (
-                        <tr key={srv.id} className="hover:bg-[#f1f3ff]/30 transition-colors">
-                          <td className="p-4 font-bold text-[#141b2b]">{srv.name}</td>
-                          <td className="p-4">
-                            <span className="px-3 py-1 bg-[#d3e3ff] text-[#004883] rounded-full text-xs font-bold">
-                              {srv.category}
-                            </span>
-                          </td>
-                          <td className="p-4 font-medium text-[#414751] text-sm">{srv.deviceType}</td>
-                          <td className="p-4 font-bold text-[#005396]">
-                            {srv.price.toLocaleString('vi-VN')} đ
-                          </td>
-                          <td className="p-4 text-right">
-                            <button
-                              onClick={() => handleDeleteService(srv.id)}
-                              className="p-1.5 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-colors cursor-pointer"
-                              title="Xóa dịch vụ"
-                            >
-                              <span className="material-symbols-outlined text-[20px]">delete</span>
-                            </button>
+                      {isServicesLoading ? (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-[#717783] text-sm font-semibold">
+                            Đang tải dữ liệu dịch vụ...
                           </td>
                         </tr>
-                      ))}
+                      ) : services.filter(srv => {
+                        const searchLower = serviceSearch.toLowerCase().trim();
+                        const matchSearch = !searchLower ||
+                          srv.name.toLowerCase().includes(searchLower) ||
+                          (srv.note && srv.note.toLowerCase().includes(searchLower));
+
+                        const typeInfo = getServiceTypeInfo(srv.category);
+                        const matchType = serviceTypeFilter === 'all' ||
+                          typeInfo.code === serviceTypeFilter ||
+                          (srv.category || '').toLowerCase().trim() === serviceTypeFilter;
+
+                        const srvDevice = (srv.deviceType || '').toLowerCase().trim();
+                        const matchDevice = deviceTypeFilter === 'all' || srvDevice.includes(deviceTypeFilter.toLowerCase());
+
+                        return matchSearch && matchType && matchDevice;
+                      }).length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="p-8 text-center text-[#717783] text-sm font-semibold">
+                            Không tìm thấy dịch vụ nào phù hợp
+                          </td>
+                        </tr>
+                      ) : (
+                        services.filter(srv => {
+                          const searchLower = serviceSearch.toLowerCase().trim();
+                          const matchSearch = !searchLower ||
+                            srv.name.toLowerCase().includes(searchLower) ||
+                            (srv.note && srv.note.toLowerCase().includes(searchLower));
+
+                          const typeInfo = getServiceTypeInfo(srv.category);
+                          const matchType = serviceTypeFilter === 'all' ||
+                            typeInfo.code === serviceTypeFilter ||
+                            (srv.category || '').toLowerCase().trim() === serviceTypeFilter;
+
+                          const srvDevice = (srv.deviceType || '').toLowerCase().trim();
+                          const matchDevice = deviceTypeFilter === 'all' || srvDevice.includes(deviceTypeFilter.toLowerCase());
+
+                          return matchSearch && matchType && matchDevice;
+                        }).map((srv) => {
+                          const typeInfo = getServiceTypeInfo(srv.category);
+                          return (
+                            <tr key={srv.id} className="hover:bg-[#f1f3ff]/30 transition-colors">
+                              <td className="p-4">
+                                <p className="font-bold text-[#141b2b]">{srv.name}</p>
+                                {srv.note && <p className="text-xs text-[#717783] mt-1">{srv.note}</p>}
+                              </td>
+                              <td className="p-4">
+                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${typeInfo.badgeBg}`}>
+                                  <span className="material-symbols-outlined text-[16px]">{typeInfo.icon}</span>
+                                  <span>{typeInfo.label}</span>
+                                </span>
+                              </td>
+                              <td className="p-4 font-semibold text-[#414751] text-sm capitalize">{srv.deviceType}</td>
+                              <td className="p-4 font-extrabold text-[#005396]">
+                                {srv.price === 0 ? (
+                                  <span className="text-amber-700 font-bold bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200 text-xs">
+                                    Báo giá sau kiểm tra
+                                  </span>
+                                ) : (
+                                  `${srv.price.toLocaleString('vi-VN')} đ`
+                                )}
+                              </td>
+                              <td className="p-4 text-right flex justify-end gap-2">
+                                <button
+                                  onClick={() => handleEditService(srv)}
+                                  className="p-1.5 text-[#005396] hover:bg-[#d3e3ff] rounded-lg transition-colors cursor-pointer"
+                                  title="Sửa dịch vụ"
+                                >
+                                  <span className="material-symbols-outlined text-[20px]">edit</span>
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteService(srv.id)}
+                                  className="p-1.5 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-colors cursor-pointer"
+                                  title="Xóa dịch vụ"
+                                >
+                                  <span className="material-symbols-outlined text-[20px]">delete</span>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1186,177 +1810,70 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* MODALS                                                    */}
       {/* ========================================================= */}
 
-      {/* 1. Modal Assign Technician */}
-      {selectedOrderForAssign && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <h3 className="font-bold text-lg text-[#005396]">Giao việc cho thợ</h3>
-              <button
-                onClick={() => setSelectedOrderForAssign(null)}
-                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full"
-              >
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <p className="text-sm text-[#717783]">
-              Chọn kỹ thuật viên phù hợp để xử lý đơn <strong className="text-[#141b2b]">{selectedOrderForAssign}</strong>
-            </p>
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
-              {technicians.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between p-3 border border-gray-200 rounded-xl hover:border-[#005396] transition-all"
-                >
-                  <div className="flex items-center gap-3">
-                    <img src={t.avatar} alt={t.name} className="w-10 h-10 rounded-full object-cover" />
-                    <div>
-                      <p className="font-bold text-sm text-[#141b2b]">{t.name}</p>
-                      <p className="text-xs text-green-600 font-semibold">
-                        {t.status === 'working' ? 'Đang làm việc' : t.status === 'waiting' ? 'Sẵn sàng' : 'Nghỉ phép'}
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleAssignTechnician(t.name)}
-                    className="bg-[#005396] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:brightness-95 transition-all cursor-pointer"
-                  >
-                    Chọn
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Modal Create New Order */}
-      {isNewOrderModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <h3 className="font-bold text-lg text-[#005396]">Tạo đơn yêu cầu mới</h3>
-              <button
-                onClick={() => setIsNewOrderModalOpen(false)}
-                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full"
-              >
-                <span className="material-symbols-outlined">close</span>
-              </button>
-            </div>
-            <form onSubmit={handleCreateAdminOrder} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-bold text-[#717783] mb-1">Tên khách hàng</label>
-                <input
-                  type="text"
-                  required
-                  value={newOrderForm.customerName}
-                  onChange={(e) => setNewOrderForm({ ...newOrderForm, customerName: e.target.value })}
-                  placeholder="Nguyễn Văn A"
-                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-[#717783] mb-1">Số điện thoại</label>
-                <input
-                  type="text"
-                  required
-                  value={newOrderForm.phone}
-                  onChange={(e) => setNewOrderForm({ ...newOrderForm, phone: e.target.value })}
-                  placeholder="0901234567"
-                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-[#717783] mb-1">Dịch vụ</label>
-                <input
-                  type="text"
-                  required
-                  value={newOrderForm.serviceName}
-                  onChange={(e) => setNewOrderForm({ ...newOrderForm, serviceName: e.target.value })}
-                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-[#717783] mb-1">Chi phí ước tính (VNĐ)</label>
-                <input
-                  type="number"
-                  value={newOrderForm.price}
-                  onChange={(e) => setNewOrderForm({ ...newOrderForm, price: Number(e.target.value) })}
-                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
-                />
-              </div>
-              <div className="pt-2 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsNewOrderModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#ff8a00] text-white rounded-xl text-xs font-bold hover:brightness-95"
-                >
-                  Tạo đơn
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* 3. Modal Add Technician */}
       {isAddTechModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <h3 className="font-bold text-lg text-[#005396]">Thêm kỹ thuật viên</h3>
+              <h3 className="font-bold text-lg text-[#005396]">{editingTechId ? "Sửa kỹ thuật viên" : "Thêm kỹ thuật viên"}</h3>
               <button
-                onClick={() => setIsAddTechModalOpen(false)}
+                onClick={() => { setIsAddTechModalOpen(false); setEditingTechId(null); }}
                 className="p-1 text-[#717783] hover:bg-gray-100 rounded-full"
               >
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            <form onSubmit={handleAddTechnician} className="space-y-3 text-sm">
-              <div>
-                <label className="block text-xs font-bold text-[#717783] mb-1">Họ và tên</label>
-                <input
-                  type="text"
-                  required
-                  value={newTechForm.name}
-                  onChange={(e) => setNewTechForm({ ...newTechForm, name: e.target.value })}
-                  placeholder="Nguyễn Văn KTV"
-                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
-                />
+            <form onSubmit={handleSaveTechnician} className="space-y-3 text-sm">
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Họ và tên lót</label>
+                  <input
+                    type="text"
+                    required
+                    value={newTechForm.last_name}
+                    onChange={(e) => setNewTechForm({ ...newTechForm, last_name: e.target.value })}
+                    placeholder="Nguyễn Văn"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Tên</label>
+                  <input
+                    type="text"
+                    required
+                    value={newTechForm.first_name}
+                    onChange={(e) => setNewTechForm({ ...newTechForm, first_name: e.target.value })}
+                    placeholder="A"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-bold text-[#717783] mb-1">Số điện thoại</label>
                 <input
                   type="text"
                   required
-                  value={newTechForm.phone}
-                  onChange={(e) => setNewTechForm({ ...newTechForm, phone: e.target.value })}
+                  value={newTechForm.phone_number}
+                  onChange={(e) => setNewTechForm({ ...newTechForm, phone_number: e.target.value })}
                   placeholder="0988777666"
                   className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-[#717783] mb-1">Kỹ năng chính</label>
-                <select
-                  value={newTechForm.skill}
-                  onChange={(e) => setNewTechForm({ ...newTechForm, skill: e.target.value })}
+                <label className="block text-xs font-bold text-[#717783] mb-1">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={newTechForm.email}
+                  onChange={(e) => setNewTechForm({ ...newTechForm, email: e.target.value })}
+                  placeholder="email@example.com"
                   className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
-                >
-                  <option value="Sửa chữa điều hòa">Sửa chữa điều hòa</option>
-                  <option value="Lắp đặt hệ thống">Lắp đặt hệ thống</option>
-                  <option value="Bảo trì định kỳ">Bảo trì định kỳ</option>
-                </select>
+                />
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddTechModalOpen(false)}
+                  onClick={() => { setIsAddTechModalOpen(false); setEditingTechId(null); }}
                   className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold"
                 >
                   Hủy
@@ -1365,7 +1882,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="submit"
                   className="px-4 py-2 bg-[#005396] text-white rounded-xl text-xs font-bold hover:brightness-95"
                 >
-                  Thêm kỹ thuật viên
+                  {editingTechId ? "Cập nhật" : "Thêm kỹ thuật viên"}
                 </button>
               </div>
             </form>
@@ -1373,20 +1890,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* 4. Modal Add Service */}
-      {isAddServiceModalOpen && (
+      {viewingTechHistoryId && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-4 max-h-[80vh] flex flex-col">
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <h3 className="font-bold text-lg text-[#005396]">Thêm dịch vụ mới</h3>
+              <h3 className="font-bold text-lg text-[#005396]">Lịch sử đơn của kỹ thuật viên</h3>
               <button
-                onClick={() => setIsAddServiceModalOpen(false)}
+                onClick={() => setViewingTechHistoryId(null)}
                 className="p-1 text-[#717783] hover:bg-gray-100 rounded-full"
               >
                 <span className="material-symbols-outlined">close</span>
               </button>
             </div>
-            <form onSubmit={handleAddService} className="space-y-3 text-sm">
+            <div className="overflow-y-auto flex-1">
+              {isHistoryLoading ? (
+                <p className="text-center text-[#717783] text-sm py-4">Đang tải lịch sử...</p>
+              ) : techHistory.length === 0 ? (
+                <p className="text-center text-[#717783] text-sm py-4">Chưa có đơn nào.</p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-[#f1f3ff]/50 border-b border-gray-100">
+                      <th className="p-3 text-xs text-[#717783] font-bold">Mã đơn</th>
+                      <th className="p-3 text-xs text-[#717783] font-bold">Dịch vụ</th>
+                      <th className="p-3 text-xs text-[#717783] font-bold">Ngày thực hiện</th>
+                      <th className="p-3 text-xs text-[#717783] font-bold">Giá</th>
+                      <th className="p-3 text-xs text-[#717783] font-bold">Trạng thái</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {techHistory.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="p-3 text-sm font-bold text-[#141b2b]">#{item.id}</td>
+                        <td className="p-3 text-sm text-[#414751]">{item.service_name || "Dịch vụ"}</td>
+                        <td className="p-3 text-sm text-[#717783]">{new Date(item.created_at).toLocaleDateString("vi-VN")}</td>
+                        <td className="p-3 text-sm font-bold text-[#005396]">{item.price?.toLocaleString("vi-VN")} đ</td>
+                        <td className="p-3 text-sm text-[#414751]">{item.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Modal Add/Edit Service */}
+      {isAddServiceModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <h3 className="font-bold text-lg text-[#005396]">
+                {editingServiceId ? 'Sửa dịch vụ' : 'Thêm dịch vụ mới'}
+              </h3>
+              <button
+                onClick={() => {
+                  setIsAddServiceModalOpen(false);
+                  setEditingServiceId(null);
+                }}
+                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <form onSubmit={handleSaveService} className="space-y-3 text-sm">
               <div>
                 <label className="block text-xs font-bold text-[#717783] mb-1">Tên dịch vụ</label>
                 <input
@@ -1394,33 +1962,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   required
                   value={newServiceForm.name}
                   onChange={(e) => setNewServiceForm({ ...newServiceForm, name: e.target.value })}
-                  placeholder="Vệ sinh dàn lạnh Chuyên sâu"
+                  placeholder="Lắp đặt điều hòa"
                   className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-[#717783] mb-1">Danh mục</label>
+                <label className="block text-xs font-bold text-[#717783] mb-1">Loại dịch vụ *</label>
                 <select
                   value={newServiceForm.category}
-                  onChange={(e) => setNewServiceForm({ ...newServiceForm, category: e.target.value as any })}
-                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
+                  onChange={(e) => setNewServiceForm({ ...newServiceForm, category: e.target.value })}
+                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396] font-medium"
                 >
-                  <option value="Khẩn cấp">Khẩn cấp</option>
-                  <option value="Bảo trì">Bảo trì</option>
-                  <option value="Trọn gói">Trọn gói</option>
-                  <option value="Lắp đặt">Lắp đặt</option>
+                  {SERVICE_TYPES.map(st => (
+                    <option key={st.code} value={st.code}>
+                      {st.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-[#717783] mb-1">Loại thiết bị</label>
-                <input
-                  type="text"
-                  required
+                <label className="block text-xs font-bold text-[#717783] mb-1">Loại thiết bị *</label>
+                <select
                   value={newServiceForm.deviceType}
                   onChange={(e) => setNewServiceForm({ ...newServiceForm, deviceType: e.target.value })}
-                  placeholder="Máy lạnh (AC)"
-                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
-                />
+                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396] font-medium capitalize"
+                >
+                  <option value="máy lạnh">Máy lạnh</option>
+                  <option value="tủ lạnh">Tủ lạnh</option>
+                  <option value="máy giặt">Máy giặt</option>
+                  <option value="lò vi sóng">Lò vi sóng</option>
+                  <option value="máy nước nóng">Máy nước nóng</option>
+                </select>
               </div>
               <div>
                 <label className="block text-xs font-bold text-[#717783] mb-1">Đơn giá (VNĐ)</label>
@@ -1432,10 +2004,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className="w-full p-2.5 border border-[#c1c7d3] rounded-xl"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-bold text-[#717783] mb-1">Ghi chú / Nội dung chi tiết dịch vụ</label>
+                <textarea
+                  rows={4}
+                  value={newServiceForm.note}
+                  onChange={(e) => setNewServiceForm({ ...newServiceForm, note: e.target.value })}
+                  placeholder="Nhập ghi chú hoặc nội dung mô tả chi tiết theo từng đoạn văn..."
+                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396] font-medium text-xs sm:text-sm"
+                />
+              </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddServiceModalOpen(false)}
+                  onClick={() => {
+                    setIsAddServiceModalOpen(false);
+                    setEditingServiceId(null);
+                  }}
                   className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold"
                 >
                   Hủy
@@ -1444,10 +2029,958 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="submit"
                   className="px-4 py-2 bg-[#005396] text-white rounded-xl text-xs font-bold hover:brightness-95"
                 >
-                  Thêm dịch vụ
+                  {editingServiceId ? 'Lưu thay đổi' : 'Thêm dịch vụ'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== CUSTOMER MODALS ==================== */}
+
+      {/* 1. Modal Xem chi tiết khách hàng */}
+      {selectedCustomerDetail && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-3">
+                <img src={selectedCustomerDetail.avatar} alt={selectedCustomerDetail.name} className="w-12 h-12 rounded-full object-cover border-2 border-[#005396]" />
+                <div>
+                  <h3 className="font-bold text-lg text-[#141b2b]">{selectedCustomerDetail.name}</h3>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedCustomerDetail(null)}
+                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full cursor-pointer"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3 bg-[#f8f9ff] p-3 rounded-xl border border-gray-100">
+                <div>
+                  <p className="text-xs text-[#717783] font-semibold">Số điện thoại</p>
+                  <p className="font-bold text-[#141b2b]">{selectedCustomerDetail.phone}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#717783] font-semibold">Email liên hệ</p>
+                  <p className="font-bold text-[#141b2b] truncate">{selectedCustomerDetail.email}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#717783] font-semibold">Năm sinh</p>
+                  <p className="font-bold text-[#141b2b]">{selectedCustomerDetail.birth_year || 'Chưa cập nhật'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-[#717783] font-semibold">Trạng thái tài khoản</p>
+                  <p className="font-bold text-[#141b2b]">
+                    {selectedCustomerDetail.hasAccount ? (
+                      <span className="text-green-600 font-bold">Đã có tài khoản</span>
+                    ) : (
+                      <span className="text-amber-600 font-bold">Chưa tạo tài khoản</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs text-[#717783] font-semibold mb-1">Địa chỉ giao dịch/lắp đặt</p>
+                <p className="p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium text-[#141b2b]">
+                  {selectedCustomerDetail.address || 'Chưa cập nhật địa chỉ'}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="p-3 border border-gray-100 rounded-xl bg-blue-50/50">
+                  <p className="text-xs text-[#717783] font-semibold">Tổng số đơn hàng</p>
+                  <p className="text-lg font-extrabold text-[#005396]">{selectedCustomerDetail.totalOrders} đơn</p>
+                </div>
+                <div className="p-3 border border-gray-100 rounded-xl bg-green-50/50">
+                  <p className="text-xs text-[#717783] font-semibold">Tổng chi tiêu tích lũy</p>
+                  <p className="text-lg font-extrabold text-green-700">{selectedCustomerDetail.totalSpend.toLocaleString('vi-VN')} đ</p>
+                </div>
+              </div>
+
+              {!selectedCustomerDetail.hasAccount && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex justify-between items-center gap-2">
+                  <span>Khách hàng này chưa có tài khoản đăng nhập app.</span>
+                  <button
+                    onClick={() => handleOpenCreateAccount(selectedCustomerDetail)}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg shrink-0 cursor-pointer transition-colors"
+                  >
+                    Tạo tài khoản
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center gap-2 pt-3 border-t border-gray-100">
+              <div>
+                {!selectedCustomerDetail.hasAccount && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleOpenEditGuestCustomer(selectedCustomerDetail)}
+                      className="px-3 py-2 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold hover:bg-amber-100 cursor-pointer flex items-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">edit</span>
+                      Sửa thông tin
+                    </button>
+                    <button
+                      onClick={() => handleDeleteGuestCustomer(selectedCustomerDetail)}
+                      className="px-3 py-2 bg-red-50 text-red-600 border border-red-200 rounded-xl text-xs font-bold hover:bg-red-100 cursor-pointer flex items-center gap-1"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                      Xóa khách hàng
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const cust = selectedCustomerDetail;
+                    setSelectedCustomerDetail(null);
+                    handleViewCustomerHistory(cust);
+                  }}
+                  className="px-4 py-2 bg-[#005396] text-white rounded-xl text-xs font-bold hover:brightness-95 cursor-pointer"
+                >
+                  Lịch sử đặt lịch
+                </button>
+                <button
+                  onClick={() => setSelectedCustomerDetail(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold hover:bg-gray-50 cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Chỉnh sửa thông tin khách hàng vãng lai */}
+      {editingGuestCustomer && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <h3 className="font-bold text-lg text-[#005396]">Chỉnh sửa thông tin khách hàng vãng lai</h3>
+              <button
+                onClick={() => setEditingGuestCustomer(null)}
+                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full cursor-pointer"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <form onSubmit={handleEditGuestCustomerSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Họ *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editCustomerForm.last_name}
+                    onChange={(e) => setEditCustomerForm({ ...editCustomerForm, last_name: e.target.value })}
+                    placeholder="VD: Nguyễn"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Tên *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editCustomerForm.first_name}
+                    onChange={(e) => setEditCustomerForm({ ...editCustomerForm, first_name: e.target.value })}
+                    placeholder="VD: Văn A"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-[#717783] mb-1">Số điện thoại *</label>
+                <input
+                  type="tel"
+                  required
+                  value={editCustomerForm.phone_number}
+                  onChange={(e) => setEditCustomerForm({ ...editCustomerForm, phone_number: e.target.value })}
+                  placeholder="0912345678"
+                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Tỉnh / Thành phố</label>
+                  <input
+                    type="text"
+                    value={editCustomerForm.province}
+                    onChange={(e) => updateEditCustomerAddressFields({ province: e.target.value })}
+                    placeholder="VD: TP. Hồ Chí Minh"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Phường / Xã</label>
+                  <input
+                    type="text"
+                    value={editCustomerForm.ward}
+                    onChange={(e) => updateEditCustomerAddressFields({ ward: e.target.value })}
+                    placeholder="VD: Phường Bến Thành"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Tên đường</label>
+                  <input
+                    type="text"
+                    value={editCustomerForm.street}
+                    onChange={(e) => updateEditCustomerAddressFields({ street: e.target.value })}
+                    placeholder="VD: Lê Lợi"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Số nhà</label>
+                  <input
+                    type="text"
+                    value={editCustomerForm.house_number}
+                    onChange={(e) => updateEditCustomerAddressFields({ house_number: e.target.value })}
+                    placeholder="VD: 123/4"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#717783] mb-1">Địa chỉ đầy đủ (Tự động cập nhật)</label>
+                <textarea
+                  readOnly
+                  rows={2}
+                  value={editCustomerForm.full_address}
+                  placeholder="Địa chỉ sẽ tự động cập nhật từ các thông tin trên..."
+                  className="w-full p-2.5 bg-[#f8f9ff] border border-[#c1c7d3] rounded-xl text-xs font-medium text-[#005396] outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingGuestCustomer(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold hover:bg-gray-50 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#005396] text-white rounded-xl text-xs font-bold hover:brightness-95 cursor-pointer"
+                >
+                  Lưu thay đổi
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Modal Lịch sử đơn hàng của khách hàng */}
+      {selectedCustomerHistory && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-3xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-[#005396]">Lịch sử đặt lịch của khách hàng</h3>
+                <p className="text-xs text-[#717783]">Khách hàng: <strong>{selectedCustomerHistory.name}</strong> • SĐT: {selectedCustomerHistory.phone}</p>
+              </div>
+              <button
+                onClick={() => setSelectedCustomerHistory(null)}
+                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full cursor-pointer"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 space-y-3 pr-1">
+              {isCustomerOrdersLoading ? (
+                <p className="text-center text-[#717783] text-sm py-8">Đang tải danh sách đơn hàng...</p>
+              ) : customerOrders.length === 0 ? (
+                <div className="text-center py-10 space-y-2">
+                  <span className="material-symbols-outlined text-[48px] text-gray-300">receipt_long</span>
+                  <p className="text-[#717783] text-sm font-semibold">Khách hàng chưa có lịch sử đặt lịch nào.</p>
+                </div>
+              ) : (
+                customerOrders.map((ord: any) => (
+                  <div key={ord.id} className="border border-gray-200 rounded-2xl p-4 bg-white shadow-sm space-y-3">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-gray-100 pb-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-[#005396]">Mã đơn #{ord.id}</span>
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap shrink-0 ${
+                            ord.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            ord.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                            ord.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {ord.status_text}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#717783] mt-0.5">
+                          Thời gian đặt: {ord.order_time ? new Date(ord.order_time).toLocaleString('vi-VN') : 'N/A'}
+                        </p>
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <p className="text-xs text-[#717783]">Kỹ thuật viên phụ trách</p>
+                        <p className="text-sm font-bold text-[#141b2b]">{ord.worker_name} {ord.worker_phone ? `(${ord.worker_phone})` : ''}</p>
+                      </div>
+                    </div>
+
+                    {/* Service details breakdown */}
+                    {ord.items && ord.items.length > 0 && (
+                      <div className="bg-[#f8f9ff] p-3 rounded-xl space-y-1.5">
+                        <p className="text-xs font-bold text-[#717783]">Chi tiết dịch vụ:</p>
+                        {ord.items.map((it: any, i: number) => (
+                          <div key={i} className="flex justify-between items-center text-xs">
+                            <span className="font-semibold text-[#141b2b]">
+                              • {it.service_name} {it.device_type ? `(${it.device_type})` : ''} x{it.quantity}
+                            </span>
+                            <span className="font-bold text-[#414751]">{Number(it.price).toLocaleString('vi-VN')} đ</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex justify-between items-center pt-1 text-sm">
+                      <span className="text-xs font-bold text-[#717783]">Tổng thanh toán:</span>
+                      <span className="text-base font-extrabold text-[#005396]">{Number(ord.total_price).toLocaleString('vi-VN')} VNĐ</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Modal Thêm khách hàng vãng lai (không tạo tài khoản) */}
+      {isAddCustomerModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-[#005396]">Thêm khách hàng vãng lai</h3>
+                <p className="text-xs text-[#717783]">Tạo hồ sơ khách hàng nhanh không cần mật khẩu.</p>
+              </div>
+              <button
+                onClick={() => setIsAddCustomerModalOpen(false)}
+                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full cursor-pointer"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <form onSubmit={handleAddCustomerWithoutAccount} className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Họ *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newCustomerForm.last_name}
+                    onChange={(e) => setNewCustomerForm({ ...newCustomerForm, last_name: e.target.value })}
+                    placeholder="Nguyễn"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Tên *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newCustomerForm.first_name}
+                    onChange={(e) => setNewCustomerForm({ ...newCustomerForm, first_name: e.target.value })}
+                    placeholder="Văn An"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-[#717783] mb-1">Số điện thoại *</label>
+                <input
+                  type="text"
+                  required
+                  value={newCustomerForm.phone_number}
+                  onChange={(e) => setNewCustomerForm({ ...newCustomerForm, phone_number: e.target.value })}
+                  placeholder="0912345678"
+                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Tỉnh / Thành phố</label>
+                  <input
+                    type="text"
+                    value={newCustomerForm.province}
+                    onChange={(e) => updateCustomerAddressFields({ province: e.target.value })}
+                    placeholder="VD: TP. Hồ Chí Minh"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Phường / Xã</label>
+                  <input
+                    type="text"
+                    value={newCustomerForm.ward}
+                    onChange={(e) => updateCustomerAddressFields({ ward: e.target.value })}
+                    placeholder="VD: Phường Bến Thành"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Tên đường</label>
+                  <input
+                    type="text"
+                    value={newCustomerForm.street}
+                    onChange={(e) => updateCustomerAddressFields({ street: e.target.value })}
+                    placeholder="VD: Lê Lợi"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-[#717783] mb-1">Số nhà</label>
+                  <input
+                    type="text"
+                    value={newCustomerForm.house_number}
+                    onChange={(e) => updateCustomerAddressFields({ house_number: e.target.value })}
+                    placeholder="VD: 123/4"
+                    className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#717783] mb-1">Địa chỉ đầy đủ (Tự động cập nhật)</label>
+                <textarea
+                  readOnly
+                  rows={2}
+                  value={newCustomerForm.full_address}
+                  placeholder="Địa chỉ sẽ tự động cập nhật từ các thông tin trên..."
+                  className="w-full p-2.5 bg-[#f8f9ff] border border-[#c1c7d3] rounded-xl text-xs font-medium text-[#005396] outline-none"
+                />
+              </div>
+              <p className="text-xs text-[#717783] italic bg-blue-50/70 p-2.5 rounded-xl">
+                Lưu ý: Khách hàng sẽ được lưu trong hệ thống để đặt lịch. Bạn có thể tạo tài khoản đăng nhập cho họ bất cứ lúc nào.
+              </p>
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCustomerModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-[#005396] text-white rounded-xl text-xs font-bold hover:brightness-95 cursor-pointer"
+                >
+                  Thêm khách hàng
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Modal Tạo tài khoản cho khách hàng vãng lai */}
+      {createAccountCustomer && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-[#005396]">Tạo tài khoản đăng nhập</h3>
+                <p className="text-xs text-[#717783]">Cấp tài khoản cho: <strong>{createAccountCustomer.name}</strong></p>
+              </div>
+              <button
+                onClick={() => setCreateAccountCustomer(null)}
+                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full cursor-pointer"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <form onSubmit={handleCreateAccountSubmit} className="space-y-3 text-sm">
+              <div>
+                <label className="block text-xs font-bold text-[#717783] mb-1">Email đăng nhập *</label>
+                <input
+                  type="email"
+                  required
+                  value={createAccountForm.email}
+                  onChange={(e) => setCreateAccountForm({ ...createAccountForm, email: e.target.value })}
+                  placeholder="khachhang@gmail.com"
+                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-[#717783] mb-1">Mật khẩu khởi tạo *</label>
+                <input
+                  type="password"
+                  required
+                  value={createAccountForm.password}
+                  onChange={(e) => setCreateAccountForm({ ...createAccountForm, password: e.target.value })}
+                  placeholder="••••••••"
+                  className="w-full p-2.5 border border-[#c1c7d3] rounded-xl outline-none focus:border-[#005396]"
+                />
+              </div>
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateAccountCustomer(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                >
+                  Xác nhận tạo tài khoản
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Phân công Kỹ thuật viên (Dedicated Quick Assignment Modal) */}
+      {assigningOrder && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-5 my-8 max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex justify-between items-start border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="font-extrabold text-lg text-[#005396] flex items-center gap-2">
+                  <span className="material-symbols-outlined text-2xl text-amber-600">engineering</span>
+                  Phân công Kỹ thuật viên
+                </h3>
+                <p className="text-xs text-[#717783] mt-0.5">
+                  Mã đơn: <span className="font-bold text-[#005396] bg-blue-50 px-2 py-0.5 rounded">{assigningOrder.orderCode}</span> — {assigningOrder.customerName} ({assigningOrder.customerPhone})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setAssigningOrder(null); setModalAssignedWorkerIds([]); }}
+                className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 rounded-full cursor-pointer transition-colors"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Order Brief Info Card */}
+            <div className="bg-[#f8f9ff] p-3.5 rounded-xl border border-blue-100 text-xs text-[#141b2b] space-y-1">
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <div><strong className="text-[#717783]">Lịch hẹn:</strong> <span className="font-bold text-[#005396]">{assigningOrder.appointmentTime || 'Chưa xếp ngày'} ({assigningOrder.timeSlot})</span></div>
+                <div><strong className="text-[#717783]">Địa chỉ:</strong> {assigningOrder.address}</div>
+              </div>
+              <div>
+                <strong className="text-[#717783]">Dịch vụ yêu cầu:</strong> <span className="font-semibold text-gray-800">{assigningOrder.items.map(i => i.serviceName).join(', ') || 'Dịch vụ HVAC'}</span>
+              </div>
+            </div>
+
+            {/* Selected Workers Banner */}
+            <div className="bg-[#fff9f2] p-3 rounded-xl border border-amber-200 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-[#914c00]">
+                <span className="flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[18px]">group</span>
+                  Kỹ thuật viên đã phân công ({modalAssignedWorkerIds.length})
+                </span>
+                {modalAssignedWorkerIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setModalAssignedWorkerIds([])}
+                    className="text-red-600 hover:underline text-[11px] font-semibold cursor-pointer"
+                  >
+                    Bỏ chọn tất cả
+                  </button>
+                )}
+              </div>
+
+              {modalAssignedWorkerIds.length > 0 ? (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {modalAssignedWorkerIds.map(wId => {
+                    const tech = technicians.find(t => Number(t.id) === wId);
+                    const fromOrder = assigningOrder.assignedWorkers?.find(w => w.workerId === wId);
+                    const name = tech ? `${tech.last_name} ${tech.first_name}` : (fromOrder?.workerName || `KTV #${wId}`);
+                    const stars = tech ? (tech.stars || 5) : (fromOrder?.workerStars || 5);
+
+                    return (
+                      <div key={wId} className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-amber-200 text-xs shadow-sm">
+                        <span className="material-symbols-outlined text-sm text-[#005396]">engineering</span>
+                        <span className="font-bold text-[#141b2b]">{name}</span>
+                        <span className="text-amber-600 font-extrabold text-[11px]">⭐{Number(stars).toFixed(1)}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveWorkerFromModal(wId)}
+                          className="text-gray-400 hover:text-red-500 font-bold ml-1 cursor-pointer"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-amber-800 italic bg-amber-50 p-2 rounded-lg">
+                  Chưa chọn KTV nào. Vui lòng nhấp vào danh sách KTV bên dưới để phân công.
+                </p>
+              )}
+            </div>
+
+            {/* Technician Search */}
+            <div>
+              <div className="relative flex-1">
+                <span className="material-symbols-outlined absolute left-3 top-2.5 text-gray-400 text-lg">search</span>
+                <input
+                  type="text"
+                  placeholder="Tìm theo tên hoặc SĐT kỹ thuật viên..."
+                  value={assignModalTechSearch}
+                  onChange={(e) => setAssignModalTechSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 border border-[#c1c7d3] rounded-xl text-xs font-semibold outline-none focus:border-[#005396] bg-white"
+                />
+              </div>
+            </div>
+            {/* Technician Cards Selector List */}
+            <div className="flex-1 overflow-y-auto pr-1 max-h-[300px] space-y-2">
+              {filteredTechsForAssignModal.map((t) => {
+                const tId = Number(t.id);
+                const isSelected = modalAssignedWorkerIds.includes(tId);
+
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => {
+                      if (isSelected) {
+                        handleRemoveWorkerFromModal(tId);
+                      } else {
+                        setModalAssignedWorkerIds(prev => [...prev, tId]);
+                      }
+                    }}
+                    className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-blue-50/80 border-[#005396] shadow-sm ring-1 ring-[#005396]'
+                        : 'bg-white border-gray-200 hover:border-blue-300 hover:bg-gray-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${
+                        isSelected ? 'bg-[#005396] text-white' : 'bg-blue-100 text-[#005396]'
+                      }`}>
+                        {t.last_name?.charAt(0) || t.first_name?.charAt(0) || 'K'}
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs text-[#141b2b] flex items-center gap-2">
+                          <span>{t.last_name} {t.first_name}</span>
+                          <span className="text-[#d97706] font-extrabold text-[11px] bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 inline-flex items-center gap-0.5">
+                            ⭐ {Number(t.stars || 5).toFixed(1)}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-[#717783] mt-0.5">
+                          <span>SĐT: {t.phone_number || 'Chưa có'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className={`w-6 h-6 rounded-full border flex items-center justify-center transition-all ${
+                      isSelected
+                        ? 'bg-[#005396] border-[#005396] text-white'
+                        : 'border-gray-300 bg-white'
+                    }`}>
+                      {isSelected && <span className="material-symbols-outlined text-[16px]">check</span>}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredTechsForAssignModal.length === 0 && (
+                <div className="text-center p-8 text-xs text-[#717783]">
+                  <span className="material-symbols-outlined text-3xl text-gray-300 block mb-1">person_search</span>
+                  Không tìm thấy kỹ thuật viên nào phù hợp.
+                </div>
+              )}
+            </div>
+
+            {/* Footer Actions */}
+            <div className="pt-3 border-t border-gray-100 flex flex-wrap justify-between gap-2 items-center">
+              {assigningOrder.assignedWorkers && assigningOrder.assignedWorkers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (confirm('Bạn có chắc muốn hủy tất cả phân công của đơn hàng này? Đơn hàng sẽ quay về trạng thái Chờ xác nhận.')) {
+                      setIsAssigning(true);
+                      const { adminService } = await import('../services/adminService');
+                      const res = await adminService.assignWorkersToOrder(assigningOrder.id, []);
+                      setIsAssigning(false);
+                      if (res.success) {
+                        await adminService.updateOrderStatus(assigningOrder.id, 'pending');
+                        alert('Đã hủy phân công kỹ thuật viên!');
+                        setAssigningOrder(null);
+                        loadAdminOrders();
+                        loadTechnicians();
+                      } else {
+                        alert('Lỗi: ' + res.message);
+                      }
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Hủy tất cả phân công
+                </button>
+              )}
+
+              <div className="flex gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => { setAssigningOrder(null); setModalAssignedWorkerIds([]); }}
+                  className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-50 cursor-pointer"
+                >
+                  Đóng
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveAssignModal}
+                  disabled={isAssigning}
+                  className="px-5 py-2 bg-[#005396] hover:bg-[#003d70] disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[18px]">how_to_reg</span>
+                  {isAssigning ? 'Đang lưu...' : `Xác nhận phân công (${modalAssignedWorkerIds.length} KTV)`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 5. Modal Xem chi tiết đơn hàng & Phân công kỹ thuật viên */}
+      {selectedOrderForDetail && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-3xl p-6 shadow-2xl space-y-6 my-8 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex justify-between items-start border-b border-gray-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-xl text-[#005396]">{selectedOrderForDetail.orderCode}</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                    selectedOrderForDetail.status === 'pending' ? 'bg-amber-100 text-amber-800' :
+                    selectedOrderForDetail.status === 'verified' ? 'bg-blue-100 text-blue-800' :
+                    selectedOrderForDetail.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {selectedOrderForDetail.statusText}
+                  </span>
+                </div>
+                <p className="text-xs text-[#717783] mt-1">
+                  Thời gian đặt đơn: <strong>{formatOrderDateTime(selectedOrderForDetail.orderTime)}</strong>
+                </p>
+              </div>
+              <button
+                onClick={() => { setSelectedOrderForDetail(null); setAssignWorkerId(''); }}
+                className="p-1 text-[#717783] hover:bg-gray-100 rounded-full cursor-pointer"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Grid: Information breakdown */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Customer & Address Information */}
+              <div className="bg-[#f8f9ff] p-4 rounded-xl border border-[#c1c7d3]/40 space-y-2">
+                <h4 className="font-bold text-[#005396] text-sm flex items-center gap-1.5 border-b border-gray-200 pb-2">
+                  <span className="material-symbols-outlined text-[18px]">person</span> Thông tin khách hàng & Địa chỉ
+                </h4>
+                <div className="text-xs space-y-1.5 pt-1 text-[#141b2b]">
+                  <p><strong className="text-[#717783]">Họ và tên:</strong> {selectedOrderForDetail.customerName}</p>
+                  <p><strong className="text-[#717783]">Số điện thoại:</strong> {selectedOrderForDetail.customerPhone}</p>
+                  {selectedOrderForDetail.customerEmail && (
+                    <p><strong className="text-[#717783]">Email:</strong> {selectedOrderForDetail.customerEmail}</p>
+                  )}
+                  <p><strong className="text-[#717783]">Địa chỉ phục vụ:</strong> <span className="font-semibold text-[#005396]">{selectedOrderForDetail.address}</span></p>
+                  <p><strong className="text-[#717783]">Lịch hẹn yêu cầu:</strong> {selectedOrderForDetail.appointmentTime || 'Chưa xếp ngày'} ({selectedOrderForDetail.timeSlot})</p>
+                  <p><strong className="text-[#717783]">Ghi chú đơn hàng:</strong> <span className="italic text-gray-700">{selectedOrderForDetail.note || 'Không có ghi chú'}</span></p>
+                </div>
+              </div>
+
+              {/* Worker & Assignment Box */}
+              <div className="bg-[#fff9f2] p-4 rounded-xl border border-amber-200 space-y-3">
+                <div className="flex items-center justify-between border-b border-amber-200 pb-2">
+                  <h4 className="font-bold text-[#914c00] text-sm flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[18px]">engineering</span>
+                    Kỹ thuật viên thực hiện ({modalAssignedWorkerIds.length})
+                  </h4>
+                </div>
+
+                {/* List of assigned workers for this order */}
+                {modalAssignedWorkerIds.length > 0 ? (
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                    {modalAssignedWorkerIds.map(wId => {
+                      const tech = technicians.find(t => Number(t.id) === wId);
+                      const fromOrder = selectedOrderForDetail.assignedWorkers?.find(w => w.workerId === wId);
+                      const name = tech ? `${tech.last_name} ${tech.first_name}` : (fromOrder?.workerName || `KTV #${wId}`);
+                      const phone = tech ? tech.phone_number : (fromOrder?.workerPhone || '');
+                      const stars = tech ? (tech.stars || 5) : (fromOrder?.workerStars || 5);
+
+                      return (
+                        <div key={wId} className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-amber-100 shadow-sm">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-blue-100 text-[#005396] font-bold flex items-center justify-center text-xs">
+                              {name.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="font-bold text-xs text-[#141b2b] flex items-center gap-1.5">
+                                <span>{name}</span>
+                                <span className="text-[#d97706] font-extrabold text-[11px] bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 inline-flex items-center gap-0.5">
+                                  ⭐ {Number(stars).toFixed(1)}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-[#717783]">SĐT: {phone || 'Chưa có'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-amber-800 italic bg-amber-50 p-3 rounded-lg border border-amber-200 text-center">
+                    Chưa có kỹ thuật viên nào được phân công cho đơn hàng này.
+                  </p>
+                )}
+
+                {(selectedOrderForDetail.status === 'completed' || selectedOrderForDetail.status === 'cancelled') && (
+                  <p className="text-[11px] text-gray-500 italic bg-gray-50 p-2 rounded-lg border border-gray-200 text-center">
+                    🔒 Đơn hàng đã {selectedOrderForDetail.status === 'completed' ? 'hoàn thành' : 'hủy'} — Không thể thay đổi phân công.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Services Items Table */}
+            <div className="space-y-2">
+              <h4 className="font-bold text-[#141b2b] text-sm flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[18px] text-[#005396]">build</span> Danh sách dịch vụ trong đơn ({selectedOrderForDetail.items.length})
+              </h4>
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-[#f1f3ff] border-b border-gray-200">
+                      <th className="p-3 font-bold text-[#414751]">Tên dịch vụ</th>
+                      <th className="p-3 font-bold text-[#414751] text-center">Số lượng</th>
+                      <th className="p-3 font-bold text-[#414751] text-right">Đơn giá</th>
+                      <th className="p-3 font-bold text-[#414751] text-right">Thành tiền</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {selectedOrderForDetail.items.map((item, idx) => (
+                      <tr key={item.id || idx} className="hover:bg-gray-50">
+                        <td className="p-3">
+                          <span className="font-bold text-[#141b2b]">{item.serviceName}</span>
+                          {item.deviceType && (
+                            <span className="block text-[11px] text-[#717783]">Loại thiết bị: {item.deviceType}</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center font-bold text-[#141b2b]">{item.quantity}</td>
+                        <td className="p-3 text-right text-gray-700 font-medium">{formatVND(item.unitPrice)}</td>
+                        <td className="p-3 text-right font-bold text-[#005396]">{formatVND(item.subTotalPrice)}</td>
+                      </tr>
+                    ))}
+                    {selectedOrderForDetail.items.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="p-4 text-center text-gray-500 italic">
+                          Chưa có chi tiết dịch vụ cụ thể.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50 border-t border-gray-200 font-extrabold text-sm text-[#141b2b]">
+                      <td colSpan={3} className="p-3 text-right">Tổng tiền dịch vụ:</td>
+                      <td className="p-3 text-right text-[#005396] text-base">{formatVND(selectedOrderForDetail.totalPrice)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Customer Review & Rating Section */}
+            <div className="space-y-2 pt-3 border-t border-gray-200">
+              <h4 className="font-bold text-[#141b2b] text-sm flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[20px] text-[#ff8a00]">star</span>
+                Đánh giá &amp; Phản hồi từ khách hàng
+              </h4>
+              {isLoadingOrderReview ? (
+                <div className="text-xs text-[#717783] italic p-3 bg-gray-50 rounded-xl border border-gray-200">
+                  Đang kiểm tra thông tin đánh giá...
+                </div>
+              ) : orderDetailReview ? (
+                <div className="bg-[#fffdf5] p-4 rounded-xl border border-amber-200/90 space-y-2.5 shadow-sm">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-amber-100 text-[#d97706] font-extrabold text-xs flex items-center justify-center">
+                        {orderDetailReview.author?.charAt(0) || 'K'}
+                      </div>
+                      <span className="text-xs font-bold text-[#141b2b]">
+                        {orderDetailReview.author} <span className="text-[#717783] font-normal">({orderDetailReview.date})</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200 text-[#ff8a00]">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <span
+                          key={i}
+                          className={`material-symbols-outlined text-base ${i < orderDetailReview.rating ? 'fill-1' : 'text-gray-300'}`}
+                        >
+                          star
+                        </span>
+                      ))}
+                      <span className="text-xs font-extrabold text-[#141b2b] ml-1">{orderDetailReview.rating}/5 sao</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-[#414751] bg-white p-3 rounded-xl border border-amber-100 italic leading-relaxed">
+                    "{orderDetailReview.comment}"
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-[#717783] italic bg-gray-50 p-3 rounded-xl border border-gray-200 text-center">
+                  Đơn hàng này chưa nhận được đánh giá từ khách hàng.
+                </p>
+              )}
+            </div>
+
+            {/* Direct Status Actions Footer */}
+            <div className="pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[#717783] font-bold">Chuyển trạng thái:</span>
+                {selectedOrderForDetail.status !== 'completed' && (
+                  <button
+                    onClick={() => handleUpdateOrderStatus(selectedOrderForDetail.id, 'completed')}
+                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Hoàn thành đơn
+                  </button>
+                )}
+                {selectedOrderForDetail.status !== 'cancelled' && selectedOrderForDetail.status !== 'completed' && (
+                  <button
+                    onClick={() => handleUpdateOrderStatus(selectedOrderForDetail.id, 'cancelled')}
+                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Hủy đơn hàng
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => { setSelectedOrderForDetail(null); setAssignWorkerId(''); }}
+                className="px-5 py-2 border border-gray-300 rounded-xl text-xs font-bold hover:bg-gray-100 cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
           </div>
         </div>
       )}

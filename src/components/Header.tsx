@@ -1,23 +1,22 @@
 import React, { useState } from 'react';
-import { ActiveTab } from '../types';
-import { User } from '@supabase/supabase-js';
+import { ActiveTab, UserProfile } from '../types';
+import { Logo } from './Logo';
 
 interface HeaderProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   bookingCount: number;
-  user?: User | null;
+  userProfile?: UserProfile | null;
 }
 
-export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, bookingCount, user }) => {
+export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, bookingCount, userProfile }) => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   const navItems = [
     { id: 'home' as ActiveTab, label: 'Trang chủ', icon: 'home' },
     { id: 'pricing' as ActiveTab, label: 'Bảng giá dịch vụ', icon: 'receipt_long' },
-    { id: 'booking' as ActiveTab, label: 'Đặt lịch dịch vụ', icon: 'calendar_month' },
-    { id: 'reviews' as ActiveTab, label: 'Đánh giá khách hàng', icon: 'star' },
-    ...(user ? [{ id: 'history' as ActiveTab, label: 'Lịch sử dịch vụ', icon: 'history' }] : []),
+    { id: 'forum' as ActiveTab, label: 'Diễn đàn điện lạnh', icon: 'forum' },
+    ...(userProfile ? [{ id: 'history' as ActiveTab, label: 'Lịch sử đặt lịch', icon: 'history' }] : []),
   ];
 
   const toggleDrawer = () => {
@@ -31,10 +30,9 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
           {/* Logo */}
           <button
             onClick={() => setActiveTab('home')}
-            className="font-bold text-2xl text-[#005396] flex items-center gap-2 flex-shrink-0 hover:opacity-90 transition-opacity text-left cursor-pointer"
+            className="hover:opacity-90 transition-opacity text-left cursor-pointer flex-shrink-0"
           >
-            <span className="material-symbols-outlined fill-1 text-3xl">ac_unit</span>
-            <span>HVAC Masters</span>
+            <Logo size="md" />
           </button>
 
           {/* Desktop Nav */}
@@ -65,27 +63,30 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
           {/* Right Header Actions */}
           <div className="flex items-center gap-4 flex-shrink-0">
             <div className="hidden md:flex items-center gap-3">
+              {/* Admin button ONLY shown when logged-in role is admin */}
+              {userProfile?.role === 'admin' && (
+                <button
+                  onClick={() => setActiveTab('admin')}
+                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all cursor-pointer ${
+                    activeTab === 'admin'
+                      ? 'bg-[#005396] text-white border-[#005396]'
+                      : 'bg-[#ff8a00]/10 text-[#914c00] border-[#ff8a00]/30 hover:bg-[#ff8a00] hover:text-white'
+                  }`}
+                  title="Giao diện Quản trị viên"
+                >
+                  <span className="material-symbols-outlined text-[18px]">admin_panel_settings</span>
+                  <span>Quản trị (Admin)</span>
+                </button>
+              )}
               <button
-                onClick={() => setActiveTab('admin')}
-                className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all cursor-pointer ${
-                  activeTab === 'admin'
-                    ? 'bg-[#005396] text-white border-[#005396]'
-                    : 'bg-[#ff8a00]/10 text-[#914c00] border-[#ff8a00]/30 hover:bg-[#ff8a00] hover:text-white'
-                }`}
-                title="Giao diện Quản trị viên"
-              >
-                <span className="material-symbols-outlined text-[18px]">admin_panel_settings</span>
-                <span>Quản trị (Admin)</span>
-              </button>
-              <button
-                onClick={() => setActiveTab(user ? 'account' : 'auth')}
-                aria-label={user ? 'Tài khoản cá nhân' : 'Đăng nhập'}
+                onClick={() => setActiveTab(userProfile ? 'account' : 'auth')}
+                aria-label={userProfile ? 'Tài khoản cá nhân' : 'Đăng nhập'}
                 className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   activeTab === 'account' || activeTab === 'auth'
                     ? 'bg-[#005396] text-white'
                     : 'text-[#414751] hover:bg-[#005396]/5 hover:text-[#005396]'
                 }`}
-                title={user ? 'Tài khoản cá nhân' : 'Đăng nhập'}
+                title={userProfile ? 'Tài khoản cá nhân' : 'Đăng nhập'}
               >
                 <span className="material-symbols-outlined text-[28px]">account_circle</span>
               </button>
@@ -125,10 +126,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
           }`}
         >
           <div className="p-4 border-b border-[#c1c7d3]/30 flex justify-between items-center">
-            <span className="font-bold text-xl text-[#141b2b] flex items-center gap-2">
-              <span className="material-symbols-outlined fill-1 text-[#005396]">ac_unit</span>
-              HVAC Masters
-            </span>
+            <Logo size="sm" />
             <button
               onClick={toggleDrawer}
               className="p-2 hover:bg-[#dce2f7]/50 rounded-full w-10 h-10 flex items-center justify-center text-[#414751]"
@@ -166,35 +164,27 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
           </nav>
 
           <div className="p-4 border-t border-[#c1c7d3]/30 flex flex-col gap-2 bg-[#f9f9ff]">
+            {userProfile?.role === 'admin' && (
+              <button
+                onClick={() => {
+                  setActiveTab('admin');
+                  setIsDrawerOpen(false);
+                }}
+                className="flex items-center gap-3 px-4 py-3 bg-[#ff8a00]/10 text-[#914c00] border border-[#ff8a00]/30 hover:bg-[#ff8a00] hover:text-white rounded-lg transition-colors font-bold min-h-[44px] w-full text-left cursor-pointer"
+              >
+                <span className="material-symbols-outlined">admin_panel_settings</span>
+                <span>Giao diện Quản trị (Admin)</span>
+              </button>
+            )}
             <button
               onClick={() => {
-                setActiveTab('admin');
+                setActiveTab(userProfile ? 'account' : 'auth');
                 setIsDrawerOpen(false);
               }}
-              className="flex items-center gap-3 px-4 py-3 bg-[#ff8a00]/10 text-[#914c00] border border-[#ff8a00]/30 hover:bg-[#ff8a00] hover:text-white rounded-lg transition-colors font-bold min-h-[44px] w-full text-left cursor-pointer"
+              className="flex items-center gap-3 px-4 py-3 bg-[#005396] text-white rounded-lg transition-colors font-bold min-h-[44px] w-full text-left cursor-pointer"
             >
-              <span className="material-symbols-outlined">admin_panel_settings</span>
-              <span>Giao diện Quản trị (Admin)</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab(user ? 'account' : 'auth');
-                setIsDrawerOpen(false);
-              }}
-              className="flex items-center gap-3 px-4 py-3 text-[#414751] hover:bg-[#dce2f7]/50 hover:text-[#005396] rounded-lg transition-colors font-semibold min-h-[44px] w-full text-left cursor-pointer"
-            >
-              <span className="material-symbols-outlined">{user ? 'person' : 'login'}</span>
-              <span>{user ? 'Tài khoản cá nhân' : 'Đăng nhập / Đăng ký'}</span>
-            </button>
-            <button
-              onClick={() => {
-                setActiveTab('booking');
-                setIsDrawerOpen(false);
-              }}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-[#ff8a00] text-white font-bold rounded-xl shadow-sm hover:bg-[#914c00] transition-colors min-h-[44px] w-full text-center cursor-pointer"
-            >
-              <span className="material-symbols-outlined">add_task</span>
-              <span>Đặt dịch vụ ngay</span>
+              <span className="material-symbols-outlined">account_circle</span>
+              <span>{userProfile ? 'Tài khoản cá nhân' : 'Đăng nhập'}</span>
             </button>
           </div>
         </div>

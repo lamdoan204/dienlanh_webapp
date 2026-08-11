@@ -1,27 +1,27 @@
 import React from 'react';
-import { ActiveTab } from '../types';
-import { User } from '@supabase/supabase-js';
+import { ActiveTab, UserProfile } from '../types';
 
 interface MobileBottomNavProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   bookingCount: number;
-  user?: User | null;
+  userProfile?: UserProfile | null;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   activeTab,
   setActiveTab,
   bookingCount,
-  user,
+  userProfile,
 }) => {
   const tabs = [
     { id: 'home' as ActiveTab, label: 'Trang chủ', icon: 'home' },
     { id: 'pricing' as ActiveTab, label: 'Bảng giá', icon: 'local_offer' },
     { id: 'booking' as ActiveTab, label: 'Đặt lịch', icon: 'calendar_month' },
+    ...(userProfile ? [{ id: 'history' as ActiveTab, label: 'Lịch sử', icon: 'history' }] : []),
     { id: 'reviews' as ActiveTab, label: 'Đánh giá', icon: 'rate_review' },
-    ...(user ? [{ id: 'history' as ActiveTab, label: 'Lịch sử', icon: 'history' }] : []),
-    { id: (user ? 'account' : 'auth') as ActiveTab, label: user ? 'Cá nhân' : 'Đăng nhập', icon: user ? 'person' : 'login' },
+    ...(userProfile?.role === 'admin' ? [{ id: 'admin' as ActiveTab, label: 'Admin', icon: 'admin_panel_settings' }] : []),
+    { id: (userProfile ? 'account' : 'auth') as ActiveTab, label: userProfile ? 'Cá nhân' : 'Đăng nhập', icon: userProfile ? 'person' : 'login' },
   ];
 
   return (

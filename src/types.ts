@@ -1,41 +1,94 @@
-export type ActiveTab = 'home' | 'pricing' | 'booking' | 'reviews' | 'history' | 'account' | 'auth' | 'onboarding' | 'admin';
+export type ActiveTab = 'home' | 'pricing' | 'booking' | 'reviews' | 'forum' | 'history' | 'account' | 'auth' | 'onboarding' | 'admin';
 
 export type AdminSubTab = 'requests' | 'technicians' | 'customers' | 'services' | 'reports';
 
 export interface AdminTechnician {
   id: string;
-  code: string;
-  name: string;
-  avatar: string;
-  skill: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  avatar?: string;
+  stars: number;
   completedOrders: number;
-  rating: number;
-  status: 'working' | 'waiting' | 'leave';
-  phone: string;
 }
 
 export interface AdminCustomer {
   id: string;
-  code: string;
-  name: string;
+  numericId: number;
+  first_name: string;
+  last_name: string;
+  code?: string;
+  name: string; // Họ tên đầy đủ (Ví dụ: Nguyễn Văn A)
   avatar: string;
   phone: string;
   email: string;
   address: string;
+  province?: string;
+  ward?: string;
+  street?: string;
+  house_number?: string;
+  birth_year?: number | null;
+  hasAccount: boolean;
+  password?: string | null;
+  created_at?: string;
   totalOrders: number;
   totalSpend: number;
-  lastServiceDate: string;
-  lastServiceType: string;
+  lastServiceDate?: string;
+  lastServiceType?: string;
   notes?: string;
 }
 
 export interface AdminService {
   id: string;
   name: string;
-  category: 'Khẩn cấp' | 'Bảo trì' | 'Trọn gói' | 'Lắp đặt';
+  category: string;
   deviceType: string;
   price: number;
   imageUrl?: string;
+  note?: string;
+}
+
+export interface AdminOrderItem {
+  id: number;
+  serviceId: number;
+  serviceName: string;
+  deviceType: string;
+  quantity: number;
+  unitPrice: number;
+  subTotalPrice: number;
+}
+
+export interface AssignedWorker {
+  workerId: number;
+  workerName: string;
+  workerPhone: string;
+  workerStars: number;
+  assignedAt?: string | null;
+}
+
+export interface AdminOrder {
+  id: number;
+  orderCode: string;
+  customerId: number;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  address: string;
+  orderTime: string;
+  appointmentTime: string | null;
+  timeSlot: string;
+  status: 'pending' | 'verified' | 'completed' | 'cancelled' | string;
+  statusText: string;
+  totalPrice: number;
+  note: string;
+  workerId: number | null;
+  workerName: string;
+  workerPhone: string;
+  workerStars: number;
+  assignedWorkers: AssignedWorker[];
+  items: AdminOrderItem[];
+  assignmentCreatedAt?: string | null;
 }
 
 export type DeviceType = 'air_conditioner' | 'refrigerator' | 'washing_machine' | 'microwave';
@@ -64,19 +117,55 @@ export interface TimeSlot {
   available: boolean;
 }
 
+export interface SelectedServiceItem {
+  serviceId: number | string;
+  serviceName: string;
+  deviceType?: string;
+  serviceType?: string;
+  unitPrice: number;
+  quantity: number;
+}
+
 export interface BookingFormData {
   fullName: string;
   phone: string;
   email: string;
   address: string;
-  device: DeviceType;
-  servicePackage: ServicePackageType;
+  device?: DeviceType;
+  servicePackage?: ServicePackageType;
+  items?: SelectedServiceItem[];
   selectedDate: string; // YYYY-MM-DD format
   selectedTimeSlot: string;
   notes?: string;
 }
 
 // Supabase relational schema types
+export interface AddressRecord {
+  id?: number;
+  user_id: number;
+  province: string;
+  ward: string;
+  street?: string | null;
+  house_number?: string | null;
+  full_address: string;
+  note?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UserProfile {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string;
+  role: 'customer' | 'admin' | 'loyal_customer' | 'unregistered_customer' | 'worker';
+  avatar?: string | null;
+  birth_year?: number | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface DBUser {
   id: number;
   first_name: string;
@@ -140,14 +229,17 @@ export interface DBReview {
   orders?: DBOrder;
 }
 
-export type BookingStatus = 'pending' | 'technician_assigned' | 'in_progress' | 'completed' | 'cancelled';
+export type BookingStatus = 'pending' | 'verified' | 'technician_assigned' | 'in_progress' | 'completed' | 'cancelled';
 
 export interface BookingRecord extends BookingFormData {
   id: string;
+  serviceName?: string;
   createdAt: string;
   status: BookingStatus;
   technicianName?: string;
   technicianPhone?: string;
+  technicianId?: number;
+  workerId?: number;
   estimatedCost: number;
   finalCost?: number;
 }
@@ -161,4 +253,6 @@ export interface CustomerReview {
   serviceType: string;
   comment: string;
   verified: boolean;
+  orderId?: string;
+  workerId?: number;
 }
