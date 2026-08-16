@@ -15,7 +15,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab, userProfile }) => 
         <div className="col-span-1 sm:col-span-2 lg:col-span-1 flex flex-col gap-3 items-center sm:items-start">
           <Logo size="md" />
           <p className="text-xs text-[#414751] max-w-xs">
-            © 2024 Điện lạnh Công Thương. Trải nghiệm sự tin cậy trong từng hơi thở. Dịch vụ kỹ thuật điều hòa &amp; điện lạnh chuẩn hóa cao cấp.
+            © Điện lạnh Công Thương. Trải nghiệm sự tin cậy trong từng hơi thở. Dịch vụ kỹ thuật điều hòa &amp; điện lạnh chuẩn hóa cao cấp.
           </p>
           <div className="flex gap-3 mt-1">
             <a href="#" className="text-[#414751] hover:text-[#005396] p-2 bg-[#f1f3ff] rounded-full transition-colors" title="Bảo hành">
@@ -30,25 +30,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab, userProfile }) => 
           </div>
         </div>
 
-        {/* Col 2 */}
-        <div className="col-span-1 flex flex-col gap-2.5">
-          <h4 className="font-semibold text-sm text-[#141b2b] uppercase tracking-wider mb-1">Công ty</h4>
-          <button
-            onClick={() => setActiveTab('home')}
-            className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all text-center sm:text-left cursor-pointer"
-          >
-            Về chúng tôi
-          </button>
-          <a href="#" className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all">
-            Chính sách bảo mật
-          </a>
-          <a href="#" className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all">
-            Điều khoản dịch vụ
-          </a>
-          <a href="#" className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all">
-            Khu vực phục vụ
-          </a>
-        </div>
+    
 
         {/* Col 3 */}
         <div className="col-span-1 flex flex-col gap-2.5">
@@ -59,25 +41,19 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab, userProfile }) => 
           >
             Bảng giá dịch vụ
           </button>
+
           <button
-            onClick={() => setActiveTab('reviews')}
+            onClick={() => setActiveTab('purchasing')}
             className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all text-center sm:text-left cursor-pointer"
           >
-            Đánh giá khách hàng
+            Dịch vụ thu mua thiết bị
           </button>
-          {userProfile && (
-            <button
-              onClick={() => setActiveTab('history')}
-              className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all text-center sm:text-left cursor-pointer"
-            >
-              Lịch sử đặt lịch
-            </button>
-          )}
+          
           <button
             onClick={() => setActiveTab('booking')}
             className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all text-center sm:text-left cursor-pointer"
           >
-            Đặt lịch khẩn cấp 24/7
+            Đặt lịch khẩn cấp
           </button>
         </div>
 
@@ -94,7 +70,7 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab, userProfile }) => 
           </div>
           <div className="flex items-center gap-2 text-xs font-bold text-[#ba1a1a] justify-center sm:justify-start mt-1">
             <span className="material-symbols-outlined text-[18px]">phone_in_talk</span>
-            <span>Hotline 24/7: 1900 6868</span>
+            <span>Hotline: 1900 6868</span>
           </div>
         </div>
       </div>

@@ -165,6 +165,104 @@ async function startServer() {
     }
   });
 
+  app.post("/api/notify-admin-purchasing", async (req, res) => {
+    try {
+      const payload = req.body || {};
+      const user = process.env.GMAIL_USER;
+      const pass = process.env.GMAIL_APP_PASSWORD;
+
+      let adminEmails: string[] = [];
+      if (Array.isArray(payload.adminEmails) && payload.adminEmails.length > 0) {
+        adminEmails = payload.adminEmails;
+      } else {
+        adminEmails = ['admin@hvacmasters.com'];
+      }
+
+      console.log(`[SERVER EMAIL PURCHASING] Target Admins: ${adminEmails.join(', ')}`);
+      console.log(`[PURCHASING ORDER] ${payload.orderCode || payload.orderId} - KH: ${payload.customerName} - Tel: ${payload.customerPhone} - Devices: ${payload.devicesSummary}`);
+
+      if (!user || !pass) {
+        console.warn("GMAIL credentials not found in env. Simulated purchasing email notification succeeded.");
+        return res.json({
+          success: true,
+          adminEmails,
+          simulated: true,
+          message: "Email simulated (chưa cài đặt GMAIL_USER / GMAIL_APP_PASSWORD trong .env)",
+        });
+      }
+
+      try {
+        const transporter = nodemailer.createTransport({
+          service: "gmail",
+          auth: { user, pass },
+        });
+
+        const itemsRows = (payload.items || []).map((it: any) => `
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #eeeeee;">
+              <strong>${it.device}</strong> (SL: ${it.quantity})<br/>
+              ${it.note ? `<span style="font-size: 12px; color: #666;">Tình trạng: ${it.note}</span>` : ''}
+            </td>
+            <td style="padding: 10px; border-bottom: 1px solid #eeeeee; text-align: right; font-weight: bold; color: #005396;">
+              ${Number(it.desired_price || 0).toLocaleString('vi-VN')} VNĐ
+            </td>
+          </tr>
+        `).join('');
+
+        const mailOptions = {
+          from: `"HVAC Masters Notification" <${user}>`,
+          to: adminEmails.join(','),
+          subject: `[YÊU CẦU THU MUA MỚI] ${payload.orderCode || '#' + payload.orderId} - KH: ${payload.customerName}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 12px; background-color: #ffffff;">
+              <h2 style="color: #005396; text-align: center; margin-top: 0;">YÊU CẦU THU MUA THIẾT BỊ CŨ MỚI</h2>
+              <div style="background-color: #f8f9ff; padding: 15px; border-radius: 8px; border-left: 4px solid #005396; margin-bottom: 20px;">
+                <p style="margin: 4px 0; font-size: 14px;"><strong>Mã đơn thu mua:</strong> <span style="color: #005396; font-weight: bold;">${payload.orderCode || '#' + payload.orderId}</span></p>
+                <p style="margin: 4px 0; font-size: 14px;"><strong>Khách hàng:</strong> ${payload.customerName}</p>
+                <p style="margin: 4px 0; font-size: 14px;"><strong>Số điện thoại:</strong> ${payload.customerPhone}</p>
+                <p style="margin: 4px 0; font-size: 14px;"><strong>Email:</strong> ${payload.customerEmail || 'Chưa cung cấp'}</p>
+                <p style="margin: 4px 0; font-size: 14px;"><strong>Địa chỉ thu mua:</strong> ${payload.address}</p>
+                ${payload.addressNote ? `<p style="margin: 4px 0; font-size: 13px; color: #555;"><strong>Ghi chú địa chỉ:</strong> ${payload.addressNote}</p>` : ''}
+                <p style="margin: 4px 0; font-size: 14px;"><strong>Ngày hẹn thu mua:</strong> ${payload.appointmentDate || 'Sớm nhất có thể'}</p>
+              </div>
+              <h3 style="color: #333; margin-bottom: 8px; font-size: 15px;">Danh Sách Thiết Bị Cần Thanh Lý:</h3>
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                <tr style="background-color: #005396; color: #ffffff;">
+                  <th style="padding: 10px; text-align: left;">Thiết bị &amp; Tình trạng</th>
+                  <th style="padding: 10px; text-align: right;">Giá mong muốn</th>
+                </tr>
+                ${itemsRows}
+                <tr style="background-color: #f0f4f8; font-weight: bold;">
+                  <td style="padding: 10px; text-align: left;">Tổng giá mong muốn:</td>
+                  <td style="padding: 10px; text-align: right; color: #ba1a1a; font-size: 15px;">
+                    ${Number(payload.totalDesiredPrice || 0).toLocaleString('vi-VN')} VNĐ
+                  </td>
+                </tr>
+              </table>
+              <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #eeeeee; text-align: center; font-size: 12px; color: #888;">
+                Hệ thống quản lý tự động Điện lạnh Công Thương
+              </div>
+            </div>
+          `,
+        };
+
+        await transporter.sendMail(mailOptions);
+        return res.json({ success: true, adminEmails, message: "Đã gửi email thông báo thu mua thành công" });
+      } catch (smtpErr) {
+        console.warn("Gmail SMTP send failed in notify-admin-purchasing:", smtpErr);
+        return res.json({
+          success: true,
+          adminEmails,
+          simulated: true,
+          message: "Email simulated (Gmail SMTP configuration issue).",
+        });
+      }
+    } catch (error) {
+      console.error("Error sending admin purchasing notification email:", error);
+      res.status(500).json({ success: false, message: "Lỗi khi gửi email", error: String(error) });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

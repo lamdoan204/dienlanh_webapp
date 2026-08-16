@@ -1,6 +1,6 @@
-export type ActiveTab = 'home' | 'pricing' | 'booking' | 'reviews' | 'forum' | 'history' | 'account' | 'auth' | 'onboarding' | 'admin';
+export type ActiveTab = 'home' | 'pricing' | 'booking' | 'purchasing' | 'reviews' | 'history' | 'account' | 'auth' | 'onboarding' | 'admin';
 
-export type AdminSubTab = 'requests' | 'technicians' | 'customers' | 'services' | 'reports';
+export type AdminSubTab = 'requests' | 'purchasing' | 'technicians' | 'customers' | 'services';
 
 export interface AdminTechnician {
   id: string;
@@ -199,10 +199,19 @@ export interface DBOrderDetail {
   services?: DBService; // Joined data
 }
 
+export interface DBAssignment {
+  id: number;
+  order_id: number;
+  worker_id: number;
+  created_at?: string;
+  updated_at?: string;
+  worker?: DBUser;
+}
+
 export interface DBOrder {
   id: number;
   customer_id: number;
-  worker_id: number | null;
+  worker_id?: number | null;
   appointment_time: string;
   time_slot_id: number;
   status: string;
@@ -212,6 +221,7 @@ export interface DBOrder {
   // Joined data
   customer?: DBUser;
   worker?: DBUser;
+  assignment?: DBAssignment[];
   time_slots?: DBTimeSlot;
   order_details?: DBOrderDetail[];
 }
@@ -255,4 +265,72 @@ export interface CustomerReview {
   verified: boolean;
   orderId?: string;
   workerId?: number;
+}
+
+// ----------------------------------------------------
+// Purchasing Service Types (Dịch vụ thu mua thiết bị)
+// ----------------------------------------------------
+export type PurchasingDeviceType = 'Tủ lạnh' | 'Máy giặt' | 'Máy lạnh';
+
+export interface PurchasingItemInput {
+  device: PurchasingDeviceType | string;
+  quantity: number;
+  desired_price: number; // Tổng giá mong muốn cho nhóm thiết bị này
+  note: string; // Mô tả tình trạng thiết bị
+  images?: File[];
+  previewUrls?: string[];
+}
+
+export interface PurchasingOrderInput {
+  address_id?: number | null;
+  fullName: string;
+  phone: string;
+  email: string;
+  province: string;
+  ward: string;
+  street?: string;
+  house_number?: string;
+  full_address: string;
+  address_note?: string;
+  time_slot_id: number;
+  appointment_time: string; // YYYY-MM-DD
+  items: PurchasingItemInput[];
+}
+
+export interface PurchasingOrderDetail {
+  id: number;
+  purchassing_order_id: number;
+  device: string;
+  quantity: number;
+  desired_price: number | null;
+  verified_price: number | null;
+  note: string | null;
+  images?: string[];
+  previewUrls?: string[];
+  image_url?: string | null;
+}
+
+export interface PurchasingOrderRecord {
+  id: number;
+  orderCode: string;
+  user_id: number;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  address_id: number;
+  address: string;
+  province?: string;
+  ward?: string;
+  street?: string;
+  house_number?: string;
+  addressNote?: string;
+  status: 'pending' | 'verified' | 'completed' | 'canceled';
+  statusText: string;
+  create_at: string;
+  time_slot_id: number | null;
+  timeSlotStr: string;
+  appointment_time: string | null;
+  details: PurchasingOrderDetail[];
+  totalDesiredPrice: number;
+  totalVerifiedPrice: number;
 }

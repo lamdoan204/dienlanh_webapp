@@ -19,7 +19,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     { id: 'pricing' as ActiveTab, label: 'Bảng giá', icon: 'local_offer' },
     { id: 'booking' as ActiveTab, label: 'Đặt lịch', icon: 'calendar_month' },
     ...(userProfile ? [{ id: 'history' as ActiveTab, label: 'Lịch sử', icon: 'history' }] : []),
-    { id: 'reviews' as ActiveTab, label: 'Đánh giá', icon: 'rate_review' },
     ...(userProfile?.role === 'admin' ? [{ id: 'admin' as ActiveTab, label: 'Admin', icon: 'admin_panel_settings' }] : []),
     { id: (userProfile ? 'account' : 'auth') as ActiveTab, label: userProfile ? 'Cá nhân' : 'Đăng nhập', icon: userProfile ? 'person' : 'login' },
   ];

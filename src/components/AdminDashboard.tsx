@@ -9,11 +9,13 @@ import {
   AdminService,
   AdminOrder,
   UserProfile,
-  CustomerReview
+  CustomerReview,
+  PurchasingOrderRecord
 } from '../types';
 import { User } from '@supabase/supabase-js';
 import { authService } from '../services/authService';
 import { commonService } from '../services/commonService';
+import { purchasingService } from '../services/purchasingService';
 import { SERVICE_TYPES, getServiceTypeInfo } from '../constants/serviceTypes';
 
 interface AdminDashboardProps {
@@ -59,6 +61,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isAssigning, setIsAssigning] = useState(false);
   const [assignModalTechSearch, setAssignModalTechSearch] = useState('');
 
+  // --- PURCHASING SERVICE STATE ---
+  const [purchasingOrders, setPurchasingOrders] = useState<PurchasingOrderRecord[]>([]);
+  const [isPurchasingLoading, setIsPurchasingLoading] = useState<boolean>(false);
+  const [purchasingSearch, setPurchasingSearch] = useState<string>('');
+  const [purchasingDateFilter, setPurchasingDateFilter] = useState<string>('');
+  const [purchasingStatusFilter, setPurchasingStatusFilter] = useState<string>('all');
+  const [selectedPurchasingForDetail, setSelectedPurchasingForDetail] = useState<PurchasingOrderRecord | null>(null);
+  const [editItemVerifiedPrices, setEditItemVerifiedPrices] = useState<{ [itemId: number]: number }>({});
+  const [isSavingPurchasing, setIsSavingPurchasing] = useState<boolean>(false);
+  const [previewPurchasingImage, setPreviewPurchasingImage] = useState<string | null>(null);
+
   // --- 2. TECHNICIANS STATE ---
   const [technicians, setTechnicians] = useState<AdminTechnician[]>([]);
   const [isTechLoading, setIsTechLoading] = useState(false);
@@ -71,6 +84,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsOrdersLoading(false);
   }, []);
 
+  const loadPurchasingOrders = useCallback(async () => {
+    setIsPurchasingLoading(true);
+    const data = await purchasingService.fetchAllPurchasingOrdersForAdmin();
+    setPurchasingOrders(data);
+    setIsPurchasingLoading(false);
+  }, []);
+
   const loadTechnicians = useCallback(async () => {
     setIsTechLoading(true);
     const { adminService } = await import('../services/adminService');
@@ -81,17 +101,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     loadAdminOrders();
+    loadPurchasingOrders();
     loadTechnicians();
-  }, [loadAdminOrders, loadTechnicians]);
+  }, [loadAdminOrders, loadPurchasingOrders, loadTechnicians]);
 
   useEffect(() => {
     if (adminSubTab === 'requests') {
       loadAdminOrders();
       loadTechnicians();
+    } else if (adminSubTab === 'purchasing') {
+      loadPurchasingOrders();
     } else if (adminSubTab === 'technicians') {
       loadTechnicians();
     }
-  }, [adminSubTab, loadAdminOrders, loadTechnicians]);
+  }, [adminSubTab, loadAdminOrders, loadPurchasingOrders, loadTechnicians]);
 
   const [techSearch, setTechSearch] = useState("");
   const [isAddTechModalOpen, setIsAddTechModalOpen] = useState(false);
@@ -599,16 +622,129 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleExportReport = () => {
-    setReportNotification("Đã xuất báo cáo thành công! Tải xuống tệp CSV báo cáo tài chính.");
-    setTimeout(() => setReportNotification(null), 4000);
-  };
-
   // Order Counts
   const unconfirmedOrdersCount = adminOrders.filter(o => o.status === 'pending').length;
   const needAssignOrdersCount = adminOrders.filter(o => !o.workerId || o.status === 'pending').length;
   const verifiedOrdersCount = adminOrders.filter(o => o.status === 'verified').length;
   const completedOrdersCount = adminOrders.filter(o => o.status === 'completed').length;
+
+  // --- PURCHASING STATS & HANDLERS ---
+  const purchasingPendingCount = purchasingOrders.filter(o => o.status === 'pending').length;
+  const purchasingVerifiedCount = purchasingOrders.filter(o => o.status === 'verified').length;
+  const purchasingCompletedCount = purchasingOrders.filter(o => o.status === 'completed').length;
+  const purchasingCanceledCount = purchasingOrders.filter(o => o.status === 'canceled').length;
+  const purchasingTotalDesiredPrice = purchasingOrders.reduce((sum, o) => sum + (o.totalDesiredPrice || 0), 0);
+  const purchasingTotalVerifiedPrice = purchasingOrders.reduce((sum, o) => sum + (o.totalVerifiedPrice || 0), 0);
+
+  const handleOpenPurchasingDetail = (order: PurchasingOrderRecord) => {
+    setSelectedPurchasingForDetail(order);
+    const initialPrices: { [itemId: number]: number } = {};
+    order.details.forEach(d => {
+      if (d.id) {
+        initialPrices[d.id] = d.verified_price !== null ? d.verified_price : (d.desired_price || 0);
+      }
+    });
+    setEditItemVerifiedPrices(initialPrices);
+  };
+
+  const handleUpdatePurchasingStatus = async (
+    orderId: number,
+    newStatus: 'pending' | 'verified' | 'completed' | 'canceled'
+  ) => {
+    if (newStatus === 'canceled') {
+      const confirmCancel = window.confirm('Bạn có chắc chắn muốn hủy đơn thu mua này không?');
+      if (!confirmCancel) return;
+    }
+    const res = await purchasingService.updatePurchasingOrderStatus(orderId, newStatus);
+    if (res.success) {
+      alert('Cập nhật trạng thái đơn thu mua thành công!');
+      if (selectedPurchasingForDetail && selectedPurchasingForDetail.id === orderId) {
+        setSelectedPurchasingForDetail(prev => prev ? {
+          ...prev,
+          status: newStatus,
+          statusText: newStatus === 'verified' ? 'Đã thẩm định & Xác nhận' :
+                      newStatus === 'completed' ? 'Đã hoàn thành thu mua' :
+                      newStatus === 'canceled' ? 'Đã hủy' : 'Chờ thẩm định & xác nhận'
+        } : null);
+      }
+      loadPurchasingOrders();
+    } else {
+      alert('Lỗi cập nhật: ' + res.message);
+    }
+  };
+
+  const handleSavePurchasingItemPrices = async () => {
+    if (!selectedPurchasingForDetail) return;
+    setIsSavingPurchasing(true);
+
+    try {
+      // Save all updated verified prices for items
+      for (const item of selectedPurchasingForDetail.details) {
+        if (item.id && editItemVerifiedPrices[item.id] !== undefined) {
+          await purchasingService.updatePurchasingOrderDetailPrice(
+            item.id,
+            editItemVerifiedPrices[item.id]
+          );
+        }
+      }
+
+      // If status was pending, auto promote to 'verified'
+      if (selectedPurchasingForDetail.status === 'pending') {
+        await purchasingService.updatePurchasingOrderStatus(selectedPurchasingForDetail.id, 'verified');
+      }
+
+      alert('Đã lưu kết quả thẩm định giá thành công!');
+      await loadPurchasingOrders();
+
+      // Update modal view
+      setSelectedPurchasingForDetail(prev => {
+        if (!prev) return null;
+        const updatedDetails = prev.details.map(d => ({
+          ...d,
+          verified_price: d.id && editItemVerifiedPrices[d.id] !== undefined ? editItemVerifiedPrices[d.id] : d.verified_price
+        }));
+        const newTotalVerified = updatedDetails.reduce((sum, d) => sum + (d.verified_price || 0), 0);
+        return {
+          ...prev,
+          details: updatedDetails,
+          totalVerifiedPrice: newTotalVerified,
+          status: prev.status === 'pending' ? 'verified' : prev.status,
+          statusText: prev.status === 'pending' ? 'Đã thẩm định & Xác nhận' : prev.statusText,
+        };
+      });
+    } catch (err: any) {
+      alert('Lỗi khi lưu: ' + (err?.message || 'Không thể lưu giá thẩm định'));
+    } finally {
+      setIsSavingPurchasing(false);
+    }
+  };
+
+  // Filtered Purchasing Orders
+  const filteredPurchasingOrders = purchasingOrders.filter(order => {
+    const searchLower = purchasingSearch.trim().toLowerCase();
+    const matchesSearch = !searchLower ||
+      order.customerName.toLowerCase().includes(searchLower) ||
+      order.customerPhone.includes(searchLower) ||
+      order.orderCode.toLowerCase().includes(searchLower) ||
+      order.details.some(d => d.device.toLowerCase().includes(searchLower));
+
+    let matchesDate = true;
+    if (purchasingDateFilter.trim()) {
+      if (order.create_at) {
+        const orderDateStr = new Date(order.create_at).toISOString().split('T')[0];
+        matchesDate = orderDateStr === purchasingDateFilter.trim();
+      } else {
+        matchesDate = false;
+      }
+    }
+
+    let matchesStatus = true;
+    if (purchasingStatusFilter !== 'all') {
+      matchesStatus = order.status === purchasingStatusFilter;
+    }
+
+    return matchesSearch && matchesDate && matchesStatus;
+  });
 
   // Filtered orders for current search/date/status
   const filteredAdminOrders = adminOrders.filter(order => {
@@ -700,6 +836,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* Sidebar Navigation Items */}
         <nav className="flex-1 space-y-1">
+          {/* Tab 1: Dịch vụ yêu cầu */}
           <button
             onClick={() => { setAdminSubTab('requests'); setIsSidebarOpen(false); }}
             className={`flex items-center gap-3 w-full rounded-xl p-3 transition-all cursor-pointer text-left min-h-[44px] font-semibold text-sm ${
@@ -715,6 +852,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </span>
           </button>
 
+          {/* Tab 2: Dịch vụ thu mua (Nằm dưới Dịch vụ yêu cầu) */}
+          <button
+            onClick={() => { setAdminSubTab('purchasing'); setIsSidebarOpen(false); }}
+            className={`flex items-center gap-3 w-full rounded-xl p-3 transition-all cursor-pointer text-left min-h-[44px] font-semibold text-sm ${
+              adminSubTab === 'purchasing'
+                ? 'bg-[#005396] text-white shadow-md'
+                : 'text-[#414751] hover:bg-[#e1e8fd]'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[22px]">shopping_bag</span>
+            <span className="flex-grow">Dịch vụ thu mua</span>
+            {purchasingPendingCount > 0 ? (
+              <span className="bg-[#ff8a00] text-white text-[11px] font-bold px-2 py-0.5 rounded-full">
+                {purchasingPendingCount}
+              </span>
+            ) : (
+              <span className="bg-blue-100 text-[#005396] text-[11px] font-bold px-2 py-0.5 rounded-full">
+                {purchasingOrders.length}
+              </span>
+            )}
+          </button>
+
+          {/* Tab 3: Kỹ thuật viên */}
           <button
             onClick={() => { setAdminSubTab('technicians'); setIsSidebarOpen(false); }}
             className={`flex items-center gap-3 w-full rounded-xl p-3 transition-all cursor-pointer text-left min-h-[44px] font-semibold text-sm ${
@@ -727,6 +887,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span className="flex-grow">Kỹ thuật viên</span>
           </button>
 
+          {/* Tab 4: Khách hàng */}
           <button
             onClick={() => { setAdminSubTab('customers'); setIsSidebarOpen(false); }}
             className={`flex items-center gap-3 w-full rounded-xl p-3 transition-all cursor-pointer text-left min-h-[44px] font-semibold text-sm ${
@@ -739,6 +900,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <span className="flex-grow">Khách hàng</span>
           </button>
 
+          {/* Tab 5: Dịch vụ */}
           <button
             onClick={() => { setAdminSubTab('services'); setIsSidebarOpen(false); }}
             className={`flex items-center gap-3 w-full rounded-xl p-3 transition-all cursor-pointer text-left min-h-[44px] font-semibold text-sm ${
@@ -749,18 +911,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             <span className="material-symbols-outlined text-[22px]">settings_suggest</span>
             <span className="flex-grow">Dịch vụ</span>
-          </button>
-
-          <button
-            onClick={() => { setAdminSubTab('reports'); setIsSidebarOpen(false); }}
-            className={`flex items-center gap-3 w-full rounded-xl p-3 transition-all cursor-pointer text-left min-h-[44px] font-semibold text-sm ${
-              adminSubTab === 'reports'
-                ? 'bg-[#005396] text-white shadow-md'
-                : 'text-[#414751] hover:bg-[#e1e8fd]'
-            }`}
-          >
-            <span className="material-symbols-outlined text-[22px]">analytics</span>
-            <span className="flex-grow">Báo cáo</span>
           </button>
         </nav>
 
@@ -797,10 +947,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </button>
               <h2 className="text-xl md:text-2xl font-bold text-[#005396] truncate">
                 {adminSubTab === 'requests' && 'Dịch vụ yêu cầu'}
+                {adminSubTab === 'purchasing' && 'Dịch vụ thu mua thiết bị'}
                 {adminSubTab === 'technicians' && 'Quản lý kỹ thuật viên'}
                 {adminSubTab === 'customers' && 'Quản lý khách hàng'}
                 {adminSubTab === 'services' && 'Quản lý dịch vụ'}
-                {adminSubTab === 'reports' && 'Báo cáo tài chính'}
               </h2>
             </div>
 
@@ -1637,168 +1787,421 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           )}
 
           {/* ========================================================= */}
-          {/* SUB-TAB 5: BÁO CÁO (REPORTS)                              */}
+          {/* SUB-TAB 5: DỊCH VỤ THU MUA (PURCHASING)                   */}
           {/* ========================================================= */}
-          {adminSubTab === 'reports' && (
+          {adminSubTab === 'purchasing' && (
             <div className="space-y-6">
-              {reportNotification && (
-                <div className="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded-xl font-medium text-sm flex items-center justify-between">
-                  <span>{reportNotification}</span>
-                  <span className="material-symbols-outlined text-green-600">check_circle</span>
-                </div>
-              )}
-
-              {/* Filters & Export */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-2 bg-[#e9edff] rounded-xl p-1 overflow-x-auto">
-                  <button
-                    onClick={() => setReportPeriod('7days')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      reportPeriod === '7days' ? 'bg-white text-[#005396] shadow-sm' : 'text-[#414751]'
-                    }`}
-                  >
-                    7 ngày qua
-                  </button>
-                  <button
-                    onClick={() => setReportPeriod('1month')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      reportPeriod === '1month' ? 'bg-white text-[#005396] shadow-sm' : 'text-[#414751]'
-                    }`}
-                  >
-                    1 tháng
-                  </button>
-                  <button
-                    onClick={() => setReportPeriod('2months')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      reportPeriod === '2months' ? 'bg-white text-[#005396] shadow-sm' : 'text-[#414751]'
-                    }`}
-                  >
-                    2 tháng
-                  </button>
-                  <button
-                    onClick={() => setReportPeriod('6months')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      reportPeriod === '6months' ? 'bg-white text-[#005396] shadow-sm' : 'text-[#414751]'
-                    }`}
-                  >
-                    6 tháng
-                  </button>
-                  <button
-                    onClick={() => setReportPeriod('thisYear')}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
-                      reportPeriod === 'thisYear' ? 'bg-white text-[#005396] shadow-sm' : 'text-[#414751]'
-                    }`}
-                  >
-                    Năm nay
-                  </button>
-                </div>
-
-                <button
-                  onClick={handleExportReport}
-                  className="flex justify-center items-center gap-2 bg-[#005396] text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-md hover:bg-[#0f6cbd] transition-all cursor-pointer"
+              {/* Stat Summary Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* 1. Chờ thẩm định / xác nhận */}
+                <div
+                  onClick={() => setPurchasingStatusFilter('pending')}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                    purchasingStatusFilter === 'pending'
+                      ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-400 shadow-sm'
+                      : 'bg-white border-gray-100 shadow-sm hover:border-amber-200'
+                  }`}
                 >
-                  <span className="material-symbols-outlined">download</span>
-                  Xuất báo cáo
-                </button>
-              </div>
-
-              {/* Financial Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="p-2 bg-[#d3e3ff] text-[#005396] rounded-xl">
-                      <span className="material-symbols-outlined">payments</span>
-                    </div>
-                    <span className="text-[#914c00] font-bold text-sm flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[16px]">trending_up</span>
-                      +12.5%
+                    <span className="text-xs font-bold text-[#717783]">Chờ thẩm định</span>
+                    <span className="p-1.5 bg-amber-100 text-amber-700 rounded-lg material-symbols-outlined text-[18px]">
+                      pending_actions
                     </span>
                   </div>
-                  <p className="text-xs font-bold text-[#717783] mb-1">Tổng thu nhập</p>
-                  <h3 className="text-2xl font-extrabold text-[#005396]">1.250.000.000đ</h3>
+                  <div className="text-2xl font-extrabold text-amber-600">
+                    {purchasingPendingCount}
+                  </div>
+                  <p className="text-[11px] text-[#717783] mt-1">Cần xem xét và định giá</p>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                {/* 2. Đã thẩm định & Báo giá */}
+                <div
+                  onClick={() => setPurchasingStatusFilter('verified')}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                    purchasingStatusFilter === 'verified'
+                      ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-400 shadow-sm'
+                      : 'bg-white border-gray-100 shadow-sm hover:border-blue-200'
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="p-2 bg-[#ffdcc4] text-[#914c00] rounded-xl">
-                      <span className="material-symbols-outlined">account_balance_wallet</span>
-                    </div>
-                    <span className="text-[#914c00] font-bold text-sm flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[16px]">show_chart</span>
-                      Ổn định
+                    <span className="text-xs font-bold text-[#717783]">Đã thẩm định</span>
+                    <span className="p-1.5 bg-[#d3e3ff] text-[#005396] rounded-lg material-symbols-outlined text-[18px]">
+                      verified
                     </span>
                   </div>
-                  <p className="text-xs font-bold text-[#717783] mb-1">Tổng lợi nhuận</p>
-                  <h3 className="text-2xl font-extrabold text-[#914c00]">450.000.000đ</h3>
+                  <div className="text-2xl font-extrabold text-[#005396]">
+                    {purchasingVerifiedCount}
+                  </div>
+                  <p className="text-[11px] text-[#717783] mt-1">Đã chốt giá với khách</p>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                {/* 3. Đã hoàn thành thu mua */}
+                <div
+                  onClick={() => setPurchasingStatusFilter('completed')}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                    purchasingStatusFilter === 'completed'
+                      ? 'bg-green-50 border-green-300 ring-2 ring-green-400 shadow-sm'
+                      : 'bg-white border-gray-100 shadow-sm hover:border-green-200'
+                  }`}
+                >
                   <div className="flex items-center justify-between mb-2">
-                    <div className="p-2 bg-[#e2dfff] text-[#403acc] rounded-xl">
-                      <span className="material-symbols-outlined">engineering</span>
-                    </div>
-                    <span className="text-[#717783] text-xs font-semibold">Chi lương thợ</span>
+                    <span className="text-xs font-bold text-[#717783]">Đã hoàn thành</span>
+                    <span className="p-1.5 bg-green-100 text-green-700 rounded-lg material-symbols-outlined text-[18px]">
+                      check_circle
+                    </span>
                   </div>
-                  <p className="text-xs font-bold text-[#717783] mb-1">Tổng chi phí nhân sự</p>
-                  <h3 className="text-2xl font-extrabold text-[#403acc]">380.000.000đ</h3>
+                  <div className="text-2xl font-extrabold text-green-600">
+                    {purchasingCompletedCount}
+                  </div>
+                  <p className="text-[11px] text-[#717783] mt-1">Đã nhận hàng và thanh toán</p>
+                </div>
+
+                {/* 4. Tổng số đơn thu mua */}
+                <div
+                  onClick={() => setPurchasingStatusFilter('all')}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                    purchasingStatusFilter === 'all'
+                      ? 'bg-slate-100 border-slate-300 ring-2 ring-slate-400 shadow-sm'
+                      : 'bg-white border-gray-100 shadow-sm hover:border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-[#717783]">Tổng đơn thu mua</span>
+                    <span className="p-1.5 bg-[#e9edff] text-[#005396] rounded-lg material-symbols-outlined text-[18px]">
+                      inventory_2
+                    </span>
+                  </div>
+                  <div className="text-2xl font-extrabold text-[#141b2b]">
+                    {purchasingOrders.length}
+                  </div>
+                  <p className="text-[11px] text-[#717783] mt-1">Toàn bộ hồ sơ thu mua</p>
                 </div>
               </div>
 
-              {/* Financial Chart Bar Representation */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              {/* Financial Totals Banner */}
+              <div className="bg-gradient-to-r from-[#005396] to-[#0f6cbd] text-white p-5 rounded-2xl shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-white/10 backdrop-blur rounded-xl">
+                    <span className="material-symbols-outlined text-[28px] text-white">price_check</span>
+                  </div>
                   <div>
-                    <h4 className="text-xl font-bold text-[#141b2b]">Xu hướng tài chính</h4>
-                    <p className="text-sm text-[#717783]">So sánh thu nhập và lợi nhuận thuần</p>
+                    <h3 className="font-bold text-base">Tổng giá trị đơn hàng thu mua</h3>
+                    <p className="text-xs text-blue-100">Ước tính giá khách mong muốn vs. Giá trị đã thẩm định</p>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-[#005396]" />
-                      <span className="text-xs font-semibold text-[#717783]">Thu nhập</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-[#ff8a00]" />
-                      <span className="text-xs font-semibold text-[#717783]">Lợi nhuận</span>
-                    </div>
+                </div>
+                <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-white/20">
+                  <div>
+                    <p className="text-[11px] text-blue-100 uppercase tracking-wider font-semibold">Khách đề xuất</p>
+                    <p className="text-lg font-extrabold text-amber-200">
+                      {purchasingTotalDesiredPrice.toLocaleString('vi-VN')} đ
+                    </p>
+                  </div>
+                  <div className="w-[1px] h-8 bg-white/20" />
+                  <div>
+                    <p className="text-[11px] text-blue-100 uppercase tracking-wider font-semibold">Đã thẩm định</p>
+                    <p className="text-lg font-extrabold text-green-300">
+                      {purchasingTotalVerifiedPrice.toLocaleString('vi-VN')} đ
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Search & Filters */}
+              <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+                <div className="flex-1 flex flex-col sm:flex-row items-center gap-3">
+                  {/* Search Input */}
+                  <div className="relative w-full sm:w-72">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[20px]">
+                      search
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Tìm mã đơn, tên, SĐT, thiết bị..."
+                      value={purchasingSearch}
+                      onChange={(e) => setPurchasingSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#005396] focus:bg-white transition-all"
+                    />
+                    {purchasingSearch && (
+                      <button
+                        onClick={() => setPurchasingSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">cancel</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Date Filter */}
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <span className="text-xs font-bold text-[#717783] whitespace-nowrap">Ngày tạo:</span>
+                    <input
+                      type="date"
+                      value={purchasingDateFilter}
+                      onChange={(e) => setPurchasingDateFilter(e.target.value)}
+                      className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-[#005396]"
+                    />
+                    {purchasingDateFilter && (
+                      <button
+                        onClick={() => setPurchasingDateFilter('')}
+                        className="text-xs text-red-600 font-bold hover:underline"
+                      >
+                        Xóa
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Status Dropdown */}
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <span className="text-xs font-bold text-[#717783] whitespace-nowrap">Trạng thái:</span>
+                    <select
+                      value={purchasingStatusFilter}
+                      onChange={(e) => setPurchasingStatusFilter(e.target.value)}
+                      className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-[#005396]"
+                    >
+                      <option value="all">Tất cả ({purchasingOrders.length})</option>
+                      <option value="pending">Chờ thẩm định ({purchasingPendingCount})</option>
+                      <option value="verified">Đã thẩm định ({purchasingVerifiedCount})</option>
+                      <option value="completed">Đã hoàn thành ({purchasingCompletedCount})</option>
+                      <option value="canceled">Đã hủy ({purchasingCanceledCount})</option>
+                    </select>
                   </div>
                 </div>
 
-                {/* Bars */}
-                <div className="h-64 flex items-end gap-4 sm:gap-8 px-4 border-b border-gray-100 pb-2">
-                  {[
-                    { label: 'T2', income: '60%', profit: '25%' },
-                    { label: 'T3', income: '80%', profit: '35%' },
-                    { label: 'T4', income: '45%', profit: '15%' },
-                    { label: 'T5', income: '95%', profit: '40%' },
-                    { label: 'T6', income: '70%', profit: '30%' },
-                    { label: 'T7', income: '85%', profit: '38%', active: true },
-                    { label: 'CN', income: '30%', profit: '10%' }
-                  ].map((bar, idx) => (
-                    <div key={idx} className="flex-1 flex flex-col justify-end items-center gap-2 h-full group relative">
-                      {bar.active && (
-                        <div className="absolute -top-8 bg-[#141b2b] text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-md">
-                          Hôm nay
-                        </div>
+                <div className="flex items-center gap-2 justify-end">
+                  <button
+                    onClick={loadPurchasingOrders}
+                    disabled={isPurchasingLoading}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-[#f1f3ff] hover:bg-[#e1e8fd] text-[#005396] rounded-xl text-xs font-bold transition-all cursor-pointer"
+                    title="Tải lại dữ liệu"
+                  >
+                    <span className={`material-symbols-outlined text-[18px] ${isPurchasingLoading ? 'animate-spin' : ''}`}>
+                      refresh
+                    </span>
+                    <span>Làm mới</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Purchasing Orders Table */}
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-[#f1f3ff] text-[#414751] uppercase font-extrabold tracking-wider border-b border-[#c1c7d3]/50">
+                        <th className="p-4">Mã đơn & Thời gian</th>
+                        <th className="p-4">Khách hàng</th>
+                        <th className="p-4">Thiết bị thu mua</th>
+                        <th className="p-4">Giá đề xuất / Thẩm định</th>
+                        <th className="p-4">Lịch hẹn thu mua</th>
+                        <th className="p-4">Trạng thái</th>
+                        <th className="p-4 text-right">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {isPurchasingLoading ? (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-gray-500">
+                            <span className="material-symbols-outlined animate-spin text-3xl text-[#005396] mb-2">
+                              autorenew
+                            </span>
+                            <p className="font-semibold text-sm">Đang tải danh sách đơn thu mua...</p>
+                          </td>
+                        </tr>
+                      ) : filteredPurchasingOrders.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-12 text-center text-gray-500">
+                            <span className="material-symbols-outlined text-4xl text-gray-300 mb-2">
+                              inventory_2
+                            </span>
+                            <p className="font-bold text-[#141b2b] text-base">Không tìm thấy đơn thu mua nào</p>
+                            <p className="text-xs text-[#717783] mt-1">
+                              Thử điều chỉnh bộ lọc hoặc tạo yêu cầu thu mua mới từ phía khách hàng.
+                            </p>
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredPurchasingOrders.map((order) => {
+                          const totalItems = order.details.reduce((sum, d) => sum + (d.quantity || 1), 0);
+                          const isPending = order.status === 'pending';
+                          const isVerified = order.status === 'verified';
+                          const isCompleted = order.status === 'completed';
+                          const isCanceled = order.status === 'canceled';
+
+                          return (
+                            <tr
+                              key={order.id}
+                              className="hover:bg-[#f1f3ff]/40 transition-colors"
+                            >
+                              {/* Order Code & Date */}
+                              <td className="p-4 align-top">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-extrabold text-[#005396] text-sm font-mono">
+                                    {order.orderCode}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-[#717783] mt-1 flex items-center gap-1">
+                                  <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+                                  {order.create_at
+                                    ? new Date(order.create_at).toLocaleDateString('vi-VN', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        day: '2-digit',
+                                        month: '2-digit',
+                                        year: 'numeric'
+                                      })
+                                    : '---'}
+                                </p>
+                              </td>
+
+                              {/* Customer info */}
+                              <td className="p-4 align-top">
+                                <p className="font-bold text-[#141b2b] text-sm">{order.customerName}</p>
+                                <p className="text-xs font-semibold text-[#005396] flex items-center gap-1 mt-0.5">
+                                  <span className="material-symbols-outlined text-[14px]">call</span>
+                                  <a href={`tel:${order.customerPhone}`} className="hover:underline">
+                                    {order.customerPhone}
+                                  </a>
+                                </p>
+                                <p className="text-[11px] text-[#717783] line-clamp-2 mt-1 max-w-[220px]" title={order.address}>
+                                  📍 {order.address}
+                                </p>
+                              </td>
+
+                              {/* Devices list */}
+                              <td className="p-4 align-top">
+                                <div className="space-y-1.5 max-w-[260px]">
+                                  {order.details.map((detail, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="flex items-start justify-between gap-2 bg-[#f8f9fc] px-2 py-1 rounded-lg border border-gray-100"
+                                    >
+                                      <div className="flex items-center gap-1.5 truncate">
+                                        <span className="material-symbols-outlined text-[16px] text-[#005396]">
+                                          {detail.device === 'Tủ lạnh' ? 'kitchen' :
+                                           detail.device === 'Máy giặt' ? 'local_laundry_service' : 'mode_fan'}
+                                        </span>
+                                        <span className="font-bold text-xs text-[#141b2b] truncate">
+                                          {detail.device}
+                                        </span>
+                                        <span className="bg-[#e9edff] text-[#005396] text-[10px] font-extrabold px-1.5 py-0.2 rounded-full">
+                                          x{detail.quantity}
+                                        </span>
+                                      </div>
+                                      <span className="text-[11px] font-bold text-amber-700 whitespace-nowrap">
+                                        {(detail.desired_price || 0).toLocaleString('vi-VN')} đ
+                                      </span>
+                                    </div>
+                                  ))}
+                                  {order.note && (
+                                    <p className="text-[10px] text-gray-500 italic bg-amber-50/60 px-2 py-1 rounded border border-amber-100 line-clamp-1">
+                                      📝 {order.note}
+                                    </p>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Price breakdown */}
+                              <td className="p-4 align-top whitespace-nowrap">
+                                <div>
+                                  <span className="text-[10px] uppercase font-bold text-gray-400 block">Đề xuất:</span>
+                                  <span className="font-bold text-amber-700 text-xs">
+                                    {(order.totalDesiredPrice || 0).toLocaleString('vi-VN')} đ
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 pt-1.5 border-t border-gray-100">
+                                  <span className="text-[10px] uppercase font-bold text-[#005396] block">Thẩm định:</span>
+                                  {order.totalVerifiedPrice ? (
+                                    <span className="font-extrabold text-green-700 text-sm">
+                                      {order.totalVerifiedPrice.toLocaleString('vi-VN')} đ
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-amber-600 font-bold italic">
+                                      Chưa thẩm định
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Appointment date & slot */}
+                              <td className="p-4 align-top">
+                                <div className="flex items-center gap-1 font-bold text-xs text-[#141b2b]">
+                                  <span className="material-symbols-outlined text-[16px] text-[#005396]">
+                                    event
+                                  </span>
+                                  <span>{order.appointment_date || 'Chưa chọn'}</span>
+                                </div>
+                                <div className="inline-block bg-blue-50 text-[#005396] px-2 py-0.5 rounded-full text-[11px] font-bold mt-1">
+                                  ⏰ {order.timeslot}
+                                </div>
+                              </td>
+
+                              {/* Status Badge */}
+                              <td className="p-4 align-top">
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+                                    isPending
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                      : isVerified
+                                      ? 'bg-blue-100 text-[#005396] border border-blue-200'
+                                      : isCompleted
+                                      ? 'bg-green-100 text-green-800 border border-green-200'
+                                      : 'bg-red-100 text-red-800 border border-red-200'
+                                  }`}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                                  <span>{order.statusText}</span>
+                                </span>
+                              </td>
+
+                              {/* Actions */}
+                              <td className="p-4 align-top text-right">
+                                <div className="flex flex-col items-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenPurchasingDetail(order)}
+                                    className="flex items-center gap-1 bg-[#005396] hover:bg-[#0f6cbd] text-white px-3 py-1.5 rounded-xl font-bold text-xs shadow-sm transition-all cursor-pointer whitespace-nowrap"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">visibility</span>
+                                    <span>Chi tiết & Định giá</span>
+                                  </button>
+
+                                  {/* Quick status transitions */}
+                                  <div className="flex items-center gap-1">
+                                    {isPending && (
+                                      <button
+                                        onClick={() => handleUpdatePurchasingStatus(order.id, 'verified')}
+                                        className="p-1 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                                        title="Xác nhận thẩm định"
+                                      >
+                                        <span className="material-symbols-outlined text-[18px]">verified</span>
+                                      </button>
+                                    )}
+                                    {!isCompleted && !isCanceled && (
+                                      <button
+                                        onClick={() => handleUpdatePurchasingStatus(order.id, 'completed')}
+                                        className="p-1 text-green-600 hover:bg-green-50 rounded-lg transition-colors cursor-pointer"
+                                        title="Đánh dấu đã hoàn tất"
+                                      >
+                                        <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                                      </button>
+                                    )}
+                                    {!isCanceled && !isCompleted && (
+                                      <button
+                                        onClick={() => handleUpdatePurchasingStatus(order.id, 'canceled')}
+                                        className="p-1 text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                        title="Hủy đơn thu mua"
+                                      >
+                                        <span className="material-symbols-outlined text-[18px]">cancel</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
-                      <div className="w-full flex gap-1 justify-center items-end cursor-pointer h-full">
-                        <div
-                          style={{ height: bar.income }}
-                          className={`w-3 sm:w-6 bg-[#005396] rounded-t-sm transition-all group-hover:brightness-110 ${
-                            bar.active ? 'animate-pulse' : ''
-                          }`}
-                        />
-                        <div
-                          style={{ height: bar.profit }}
-                          className={`w-3 sm:w-6 bg-[#ff8a00] rounded-t-sm transition-all group-hover:brightness-110 ${
-                            bar.active ? 'animate-pulse' : ''
-                          }`}
-                        />
-                      </div>
-                      <span className={`text-xs font-bold ${bar.active ? 'text-[#005396]' : 'text-[#717783]'}`}>
-                        {bar.label}
-                      </span>
-                    </div>
-                  ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -2981,6 +3384,302 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Đóng
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* PURCHASING ORDER DETAIL & APPRAISAL MODAL                */}
+      {/* ========================================================= */}
+      {selectedPurchasingForDetail && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-y-auto backdrop-blur-xs">
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-gray-200 p-6 my-8 space-y-6 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-gray-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="p-2 bg-[#d3e3ff] text-[#005396] rounded-xl material-symbols-outlined text-[20px]">
+                    shopping_bag
+                  </span>
+                  <h3 className="font-extrabold text-xl text-[#005396]">
+                    Chi tiết đơn thu mua #{selectedPurchasingForDetail.orderCode}
+                  </h3>
+                </div>
+                <p className="text-xs text-[#717783] mt-1 pl-1">
+                  Ngày gửi yêu cầu:{' '}
+                  {selectedPurchasingForDetail.create_at
+                    ? new Date(selectedPurchasingForDetail.create_at).toLocaleString('vi-VN')
+                    : '---'}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedPurchasingForDetail(null)}
+                className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors cursor-pointer"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* Customer & Appointment Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Customer Box */}
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-2 text-xs">
+                <h4 className="font-bold text-[#005396] text-sm flex items-center gap-1.5 border-b border-gray-200 pb-1.5">
+                  <span className="material-symbols-outlined text-[18px]">person</span>
+                  Thông tin khách hàng
+                </h4>
+                <p><strong className="text-[#717783]">Họ và tên:</strong> {selectedPurchasingForDetail.customerName}</p>
+                <p>
+                  <strong className="text-[#717783]">Số điện thoại:</strong>{' '}
+                  <a href={`tel:${selectedPurchasingForDetail.customerPhone}`} className="text-[#005396] font-bold hover:underline">
+                    {selectedPurchasingForDetail.customerPhone}
+                  </a>
+                </p>
+                <p><strong className="text-[#717783]">Địa chỉ thu mua:</strong> <span className="font-semibold text-[#141b2b]">{selectedPurchasingForDetail.address}</span></p>
+                {selectedPurchasingForDetail.note && (
+                  <p><strong className="text-[#717783]">Ghi chú chung:</strong> <span className="italic text-gray-700">{selectedPurchasingForDetail.note}</span></p>
+                )}
+              </div>
+
+              {/* Appointment Box */}
+              <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-200 space-y-2 text-xs">
+                <h4 className="font-bold text-[#005396] text-sm flex items-center gap-1.5 border-b border-blue-200 pb-1.5">
+                  <span className="material-symbols-outlined text-[18px]">event</span>
+                  Lịch hẹn & Trạng thái
+                </h4>
+                <p>
+                  <strong className="text-[#717783]">Ngày hẹn:</strong>{' '}
+                  <span className="font-bold text-[#141b2b]">{selectedPurchasingForDetail.appointment_date || 'Chưa chọn ngày'}</span>
+                </p>
+                <p>
+                  <strong className="text-[#717783]">Khung giờ:</strong>{' '}
+                  <span className="font-bold text-[#005396]">{selectedPurchasingForDetail.timeslot}</span>
+                </p>
+                <div className="pt-1 flex items-center gap-2">
+                  <strong className="text-[#717783]">Trạng thái:</strong>
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      selectedPurchasingForDetail.status === 'pending'
+                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                        : selectedPurchasingForDetail.status === 'verified'
+                        ? 'bg-blue-100 text-[#005396] border border-blue-200'
+                        : selectedPurchasingForDetail.status === 'completed'
+                        ? 'bg-green-100 text-green-800 border border-green-200'
+                        : 'bg-red-100 text-red-800 border border-red-200'
+                    }`}
+                  >
+                    {selectedPurchasingForDetail.statusText}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Devices & Appraisal Pricing Table */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-[#141b2b] text-sm flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[18px] text-[#005396]">inventory</span>
+                  Danh sách thiết bị thu mua & Thẩm định giá ({selectedPurchasingForDetail.details.length} loại)
+                </h4>
+                <span className="text-[11px] text-[#717783] italic">
+                  * Nhập giá thẩm định cho từng thiết bị bên dưới
+                </span>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl overflow-hidden shadow-xs">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-[#f1f3ff] text-[#414751] uppercase font-bold border-b border-gray-200">
+                    <tr>
+                      <th className="p-3">Thiết bị & Số lượng</th>
+                      <th className="p-3">Tình trạng / Mô tả của khách</th>
+                      <th className="p-3 text-right">Giá khách đề xuất</th>
+                      <th className="p-3 text-right">Giá thẩm định (Admin)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {selectedPurchasingForDetail.details.map((item, idx) => {
+                      const currentVal = item.id && editItemVerifiedPrices[item.id] !== undefined
+                        ? editItemVerifiedPrices[item.id]
+                        : (item.verified_price || 0);
+
+                      return (
+                        <tr key={idx} className="hover:bg-gray-50/60">
+                          <td className="p-3 align-middle">
+                            <div className="flex items-center gap-2">
+                              <span className="material-symbols-outlined text-[20px] text-[#005396]">
+                                {item.device === 'Tủ lạnh' ? 'kitchen' :
+                                 item.device === 'Máy giặt' ? 'local_laundry_service' : 'mode_fan'}
+                              </span>
+                              <div>
+                                <p className="font-bold text-sm text-[#141b2b]">{item.device}</p>
+                                <p className="text-[11px] text-[#717783]">Số lượng: <strong className="text-[#005396]">{item.quantity} cái</strong></p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3 align-middle">
+                            <p className="text-gray-700 italic max-w-xs bg-amber-50/50 p-2 rounded-lg border border-amber-100">
+                              {item.note || 'Không có mô tả chi tiết'}
+                            </p>
+                            {item.previewUrls && item.previewUrls.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                <span className="text-[10px] font-bold text-[#005396] flex items-center gap-1">
+                                  <span className="material-symbols-outlined text-[13px]">image</span>
+                                  Hình ảnh khách đã tải lên ({item.previewUrls.length}):
+                                </span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {item.previewUrls.map((url, imgIdx) => (
+                                    <button
+                                      key={imgIdx}
+                                      type="button"
+                                      onClick={() => setPreviewPurchasingImage(url)}
+                                      className="relative group w-12 h-12 rounded-lg overflow-hidden border border-gray-200 hover:border-[#005396] shadow-2xs hover:shadow-xs transition-all cursor-pointer"
+                                      title="Nhấn để phóng to ảnh"
+                                    >
+                                      <img
+                                        src={url}
+                                        alt={`Ảnh thiết bị ${imgIdx + 1}`}
+                                        className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                                      />
+                                      <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors flex items-center justify-center">
+                                        <span className="material-symbols-outlined text-white text-[12px] opacity-0 group-hover:opacity-100 drop-shadow">zoom_in</span>
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-3 align-middle text-right font-bold text-amber-700">
+                            {(item.desired_price || 0).toLocaleString('vi-VN')} đ
+                          </td>
+                          <td className="p-3 align-middle text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <input
+                                type="number"
+                                min={0}
+                                step={50000}
+                                value={currentVal}
+                                onChange={(e) => {
+                                  if (item.id) {
+                                    const val = Math.max(0, parseInt(e.target.value) || 0);
+                                    setEditItemVerifiedPrices(prev => ({
+                                      ...prev,
+                                      [item.id!]: val
+                                    }));
+                                  }
+                                }}
+                                className="w-32 px-2.5 py-1.5 border border-[#005396] rounded-lg text-right font-bold text-[#005396] text-xs focus:ring-2 focus:ring-[#005396]/30 focus:outline-none"
+                              />
+                              <span className="text-xs font-bold text-gray-500">đ</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot className="bg-gray-50 font-bold border-t border-gray-200">
+                    <tr>
+                      <td colSpan={2} className="p-3 text-right text-xs uppercase text-[#717783]">
+                        Tổng cộng:
+                      </td>
+                      <td className="p-3 text-right text-sm text-amber-700">
+                        {(selectedPurchasingForDetail.totalDesiredPrice || 0).toLocaleString('vi-VN')} đ
+                      </td>
+                      <td className="p-3 text-right text-base text-green-700">
+                        {selectedPurchasingForDetail.details.reduce((sum, item) => {
+                          const val = item.id && editItemVerifiedPrices[item.id] !== undefined
+                            ? editItemVerifiedPrices[item.id]
+                            : (item.verified_price || 0);
+                          return sum + val;
+                        }, 0).toLocaleString('vi-VN')} đ
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Appraisal Save & Quick Status Transitions */}
+            <div className="p-4 bg-[#f8f9ff] rounded-xl border border-blue-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div>
+                <p className="font-bold text-xs text-[#005396]">Xác nhận giá & Cập nhật trạng thái</p>
+                <p className="text-[11px] text-[#717783]">Lưu bảng giá thẩm định sẽ tự động cập nhật đơn sang 'Đã thẩm định & Xác nhận'</p>
+              </div>
+              <button
+                onClick={handleSavePurchasingItemPrices}
+                disabled={isSavingPurchasing}
+                className="flex items-center justify-center gap-1.5 bg-[#005396] hover:bg-[#0f6cbd] text-white px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all cursor-pointer whitespace-nowrap"
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {isSavingPurchasing ? 'hourglass_top' : 'save'}
+                </span>
+                <span>{isSavingPurchasing ? 'Đang lưu...' : 'Lưu kết quả thẩm định'}</span>
+              </button>
+            </div>
+
+            {/* Direct Status Actions Footer */}
+            <div className="pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[#717783] font-bold">Chuyển trạng thái:</span>
+                {selectedPurchasingForDetail.status !== 'verified' && (
+                  <button
+                    onClick={() => handleUpdatePurchasingStatus(selectedPurchasingForDetail.id, 'verified')}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Đã thẩm định
+                  </button>
+                )}
+                {selectedPurchasingForDetail.status !== 'completed' && (
+                  <button
+                    onClick={() => handleUpdatePurchasingStatus(selectedPurchasingForDetail.id, 'completed')}
+                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Hoàn thành thu mua
+                  </button>
+                )}
+                {selectedPurchasingForDetail.status !== 'canceled' && (
+                  <button
+                    onClick={() => handleUpdatePurchasingStatus(selectedPurchasingForDetail.id, 'canceled')}
+                    className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Hủy đơn
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => setSelectedPurchasingForDetail(null)}
+                className="px-5 py-2 border border-gray-300 rounded-xl text-xs font-bold hover:bg-gray-100 cursor-pointer"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Purchasing Image Lightbox Viewer */}
+      {previewPurchasingImage && (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in"
+          onClick={() => setPreviewPurchasingImage(null)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] bg-black rounded-2xl overflow-hidden shadow-2xl flex flex-col items-center justify-center border border-white/20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setPreviewPurchasingImage(null)}
+              className="absolute top-3 right-3 z-10 w-9 h-9 rounded-full bg-black/60 hover:bg-black/90 text-white flex items-center justify-center transition-colors cursor-pointer"
+              title="Đóng xem ảnh"
+            >
+              <span className="material-symbols-outlined text-xl">close</span>
+            </button>
+            <img
+              src={previewPurchasingImage}
+              alt="Ảnh thiết bị chi tiết"
+              className="max-h-[85vh] max-w-full object-contain rounded-lg"
+            />
           </div>
         </div>
       )}

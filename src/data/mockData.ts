@@ -1,6 +1,6 @@
 import { DeviceOption, ServicePackage } from '../types';
 
-export const HERO_IMAGE_URL = "https://lh3.googleusercontent.com/aida-public/AB6AXuCgiFJXKQSIlcq7laxFNCLev_NnLwThanX90NQW6BLCas0NB3h4LKXGzlcQtyleqwHgBOel-k5mRTAdIBqMy-GpAP2_nF0c2XNPRC7qIRDFQm5zQiOAC0ZrJpg2OkEnHuzPStqmeZxpTbhqqmdDFktQhQreCknwFq5P67kl-8IQFktKbgD0QJrQO-ibw15T2eu2tyQZU_tG_kNZoL--snhM1SG4UDES9jHpNdPqzbHd4k2FUhCvk_cMcg";
+export const HERO_IMAGE_URL = "/images/work-1.jpg";
 
 export const DEVICE_OPTIONS: DeviceOption[] = [
   {
@@ -96,4 +96,8 @@ export const PRICING_CATEGORIES = [
       { name: 'Sửa bo mạch điều khiển', price: '650k+' }
     ]
   }
+];
+export const PROJECT_IMAGES = [
+  "/images/work-2.jpg",
+  "/images/work-3.jpg",
 ];

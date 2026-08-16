@@ -229,23 +229,49 @@ export const commonService = {
 
       const { data: reviewsData } = await supabase
         .from('reviews')
-        .select('stars, rating')
+        .select('stars, rating, order_id')
         .in('order_id', idsArr);
 
-      if (!reviewsData || reviewsData.length === 0) return null;
+      const ratings: number[] = [];
 
-      const validRatings = reviewsData
-        .map(r => Number(r.stars ?? r.rating))
-        .filter(val => !isNaN(val) && val > 0);
+      if (reviewsData && reviewsData.length > 0) {
+        reviewsData.forEach(r => {
+          const val = Number(r.stars ?? r.rating);
+          if (!isNaN(val) && val > 0) {
+            ratings.push(val);
+          }
+        });
+      }
 
-      if (validRatings.length === 0) return null;
+      // Check local storage fallback for any reviewed orders
+      try {
+        const stored = localStorage.getItem('reviewed_orders_map') || '{}';
+        const map = JSON.parse(stored);
+        idsArr.forEach(id => {
+          const localRev = map[String(id)];
+          if (localRev && localRev.rating && !isNaN(Number(localRev.rating))) {
+            const hasRemote = reviewsData && reviewsData.some(r => Number(r.order_id) === id);
+            if (!hasRemote) {
+              ratings.push(Number(localRev.rating));
+            }
+          }
+        });
+      } catch {
+        // ignore
+      }
 
-      const sum = validRatings.reduce((acc, curr) => acc + curr, 0);
-      const avgStars = Number((sum / validRatings.length).toFixed(1));
+      if (ratings.length === 0) return null;
 
-      await supabase
+      const sum = ratings.reduce((acc, curr) => acc + curr, 0);
+      const avgStars = Number((sum / ratings.length).toFixed(1));
+
+      const { error: starErr } = await supabase
         .from('worker_star')
-        .upsert({ user_id: workerId, stars: avgStars });
+        .upsert({ user_id: workerId, stars: avgStars }, { onConflict: 'user_id' });
+
+      if (starErr) {
+        console.warn('Notice upserting worker_star:', starErr);
+      }
 
       try {
         await supabase
@@ -322,31 +348,55 @@ export const commonService = {
     }
 
     try {
-      // Resolve customer_id and worker_id from orders table if needed
+      const workerIdsToUpdate = new Set<number>();
+      if (workerId && !isNaN(Number(workerId))) {
+        workerIdsToUpdate.add(Number(workerId));
+      }
+
       let customerUserId: number | null = null;
-      let targetWorkerId = workerId;
 
       if (!isNaN(numOrderId) && numOrderId > 0) {
+        // Get order details
         const { data: oData } = await supabase
           .from('orders')
-          .select('customer_id, worker_id')
+          .select('customer_id')
           .eq('id', numOrderId)
           .single();
 
         if (oData) {
           if (oData.customer_id) customerUserId = Number(oData.customer_id);
-          if ((!targetWorkerId || isNaN(targetWorkerId)) && oData.worker_id) {
-            targetWorkerId = Number(oData.worker_id);
-          }
+        }
+
+        // Check assignment table for all workers assigned to this order
+        const { data: assignData } = await supabase
+          .from('assignment')
+          .select('worker_id')
+          .eq('order_id', numOrderId);
+
+        if (assignData) {
+          assignData.forEach(a => {
+            if (a.worker_id && !isNaN(Number(a.worker_id))) {
+              workerIdsToUpdate.add(Number(a.worker_id));
+            }
+          });
         }
       }
 
+      // If customerUserId not found, resolve a valid user_id from users table to prevent FK error
       if (!customerUserId) {
-        customerUserId = 1;
+        const { data: validUser } = await supabase
+          .from('users')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+        if (validUser) {
+          customerUserId = Number(validUser.id);
+        } else {
+          customerUserId = 1;
+        }
       }
 
-      // 2. Insert into Supabase reviews table according to actual schema:
-      // user_id, order_id, stars, detail
+      // 2. Insert/Upsert into Supabase reviews table: user_id, order_id, stars, detail
       if (!isNaN(numOrderId) && numOrderId > 0) {
         const payload = {
           user_id: customerUserId,
@@ -355,15 +405,18 @@ export const commonService = {
           detail: comment
         };
 
-        const { error: insertErr } = await supabase.from('reviews').insert([payload]);
-        if (insertErr) {
-          console.warn('Supabase insert review notice:', insertErr);
+        const { error: upsertErr } = await supabase
+          .from('reviews')
+          .upsert(payload, { onConflict: 'order_id' });
+
+        if (upsertErr) {
+          console.warn('Supabase upsert review notice:', upsertErr);
         }
       }
 
-      // 3. Update worker average rating
-      if (targetWorkerId && !isNaN(targetWorkerId)) {
-        await commonService.updateWorkerAverageRating(targetWorkerId);
+      // 3. Update worker average rating for all workers associated with this order
+      for (const wId of Array.from(workerIdsToUpdate)) {
+        await commonService.updateWorkerAverageRating(wId);
       }
 
       return {

@@ -33,7 +33,6 @@ export const adminService = {
         .select(`
           *,
           customer:customer_id(*, address(*)),
-          worker:worker_id(*, worker_star(*)),
           time_slots(*),
           order_details(*, services(*)),
           assignment(*, worker:worker_id(*, worker_star(*)))
@@ -63,18 +62,6 @@ export const adminService = {
         const ts = order.time_slots;
         const timeSlotStr = ts ? `${ts.start_time?.slice(0, 5) || ''} - ${ts.end_time?.slice(0, 5) || ''}` : 'Chưa xếp lịch';
 
-        // Primary Worker info
-        const wObj = order.worker;
-        const workerLastName = wObj?.last_name || '';
-        const workerFirstName = wObj?.first_name || '';
-        const workerName = wObj ? (workerLastName + ' ' + workerFirstName).trim() : 'Chưa phân công';
-        const workerPhone = wObj?.phone_number || '';
-        const workerInfo = Array.isArray(wObj?.worker_star) ? wObj.worker_star[0] : (wObj?.worker_star || wObj?.worker);
-        const rawWorkerStars = workerInfo?.stars;
-        const workerStars = (rawWorkerStars !== undefined && rawWorkerStars !== null && !isNaN(Number(rawWorkerStars)) && Number(rawWorkerStars) > 0)
-          ? Number(rawWorkerStars)
-          : 5;
-
         // Multi-worker assignments resolution
         const assignList = order.assignment || [];
         const assignedWorkers: any[] = [];
@@ -82,7 +69,7 @@ export const adminService = {
 
         if (Array.isArray(assignList) && assignList.length > 0) {
           assignList.forEach((a: any) => {
-            const workerUser = a.worker || (a.worker_id === order.worker_id ? order.worker : null);
+            const workerUser = a.worker;
             const wInfo = Array.isArray(workerUser?.worker_star) ? workerUser.worker_star[0] : (workerUser?.worker_star || workerUser?.worker);
             const lastName = workerUser?.last_name || '';
             const firstName = workerUser?.first_name || '';
@@ -106,16 +93,11 @@ export const adminService = {
           });
         }
 
-        // Fallback: If no assignment records exist, but order.worker_id exists, include primary worker
-        if (order.worker_id && !addedWorkerIds.has(Number(order.worker_id))) {
-          assignedWorkers.push({
-            workerId: Number(order.worker_id),
-            workerName,
-            workerPhone,
-            workerStars,
-            assignedAt: null
-          });
-        }
+        const primaryWorker = assignedWorkers.length > 0 ? assignedWorkers[0] : null;
+        const workerName = primaryWorker ? primaryWorker.workerName : 'Chưa phân công';
+        const workerPhone = primaryWorker ? primaryWorker.workerPhone : '';
+        const workerStars = primaryWorker ? primaryWorker.workerStars : 5;
+        const primaryWorkerId = primaryWorker ? primaryWorker.workerId : undefined;
 
         // Order details items
         const details = order.order_details || [];
@@ -160,7 +142,7 @@ export const adminService = {
           statusText,
           totalPrice: Number(order.total_price || 0),
           note: order.note || '',
-          workerId: order.worker_id,
+          workerId: primaryWorkerId,
           workerName,
           workerPhone,
           workerStars,
@@ -184,13 +166,11 @@ export const adminService = {
     try {
       const nowIso = new Date().toISOString();
       const uniqueWorkerIds = Array.from(new Set(workerIds.map(id => Number(id)).filter(id => !isNaN(id) && id > 0)));
-      const primaryWorkerId = uniqueWorkerIds.length > 0 ? uniqueWorkerIds[0] : null;
 
-      // 1. Update orders table: primary worker_id, status = 'verified', updated_status_time
+      // 1. Update orders table status = 'verified', updated_status_time
       const { error: orderError } = await supabase
         .from('orders')
         .update({
-          worker_id: primaryWorkerId,
           status: 'verified',
           updated_status_time: nowIso
         })
@@ -292,6 +272,20 @@ export const adminService = {
         });
       }
 
+      // Ensure missing worker_star rows are created in DB with default 5 stars
+      const missingStarPayloads: { user_id: number; stars: number }[] = [];
+      usersData.forEach((u: any) => {
+        const uId = Number(u.id);
+        if (!starsMap.has(uId)) {
+          starsMap.set(uId, 5);
+          missingStarPayloads.push({ user_id: uId, stars: 5 });
+        }
+      });
+
+      if (missingStarPayloads.length > 0) {
+        await supabase.from('worker_star').upsert(missingStarPayloads, { onConflict: 'user_id' });
+      }
+
       return usersData.map((u: any) => {
         const rawStar = starsMap.get(Number(u.id));
         const stars = (rawStar !== undefined && rawStar !== null && !isNaN(Number(rawStar)) && Number(rawStar) > 0)
@@ -376,20 +370,73 @@ export const adminService = {
 
   async deleteTechnician(id: string): Promise<boolean> {
     if (!supabase) return false;
-    const { error } = await supabase.from('users').delete().eq('id', Number(id));
-    if (error) {
-      console.error('Error deleting tech:', error);
+    const techId = Number(id);
+    if (isNaN(techId)) return false;
+
+    try {
+      // 1. Delete all records of this worker in 'assignment' table first
+      const { error: assignError } = await supabase
+        .from('assignment')
+        .delete()
+        .eq('worker_id', techId);
+
+      if (assignError) {
+        console.warn('Notice deleting worker assignment records:', assignError);
+      }
+
+      // 2. Delete from worker_star table
+      const { error: starError } = await supabase
+        .from('worker_star')
+        .delete()
+        .eq('user_id', techId);
+
+      if (starError) {
+        console.warn('Notice deleting worker_star record:', starError);
+      }
+
+      // 3. Delete from worker table if exists
+      try {
+        await supabase.from('worker').delete().eq('user_id', techId);
+      } catch {
+        // ignore
+      }
+
+      // 4. Delete technician record from users table
+      const { error: userError } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', techId);
+
+      if (userError) {
+        console.error('Error deleting technician user:', userError);
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Exception deleting technician:', err);
       return false;
     }
-    return true;
   },
 
   async fetchTechnicianHistory(id: string): Promise<any[]> {
     if (!supabase) return [];
+    const techId = Number(id);
+    if (isNaN(techId)) return [];
+
+    const { data: assignData } = await supabase
+      .from('assignment')
+      .select('order_id')
+      .eq('worker_id', techId);
+
+    if (!assignData || assignData.length === 0) return [];
+    const orderIds = assignData.map(a => Number(a.order_id)).filter(n => !isNaN(n) && n > 0);
+    if (orderIds.length === 0) return [];
+
     const { data, error } = await supabase
       .from('orders')
       .select('*, order_details(*, services(*))')
-      .eq('worker_id', Number(id))
+      .in('id', orderIds)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -667,7 +714,7 @@ export const adminService = {
 
     const { data, error } = await supabase
       .from('orders')
-      .select('*, order_details(*, services(*)), worker:worker_id(id, first_name, last_name, phone_number), time_slots(*)')
+      .select('*, order_details(*, services(*)), assignment(*, worker:worker_id(id, first_name, last_name, phone_number)), time_slots(*)')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
 
@@ -677,8 +724,9 @@ export const adminService = {
     }
 
     return (data || []).map((order: any) => {
-      const workerName = order.worker 
-        ? `${order.worker.last_name || ''} ${order.worker.first_name || ''}`.trim()
+      const primaryWorker = order.assignment?.[0]?.worker;
+      const workerName = primaryWorker 
+        ? `${primaryWorker.last_name || ''} ${primaryWorker.first_name || ''}`.trim()
         : 'Chưa phân công';
 
       const timeSlotText = order.time_slots 
@@ -701,7 +749,7 @@ export const adminService = {
         status_text: order.status === 'completed' ? 'Hoàn thành' : order.status === 'verified' ? 'Đã xác nhận' : order.status === 'in_progress' ? 'Đang thực hiện' : order.status === 'cancelled' ? 'Đã hủy' : 'Đang chờ',
         total_price: order.total_price || 0,
         worker_name: workerName,
-        worker_phone: order.worker?.phone_number || '',
+        worker_phone: primaryWorker?.phone_number || '',
         items
       };
     });

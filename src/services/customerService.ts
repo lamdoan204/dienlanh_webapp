@@ -27,7 +27,7 @@ export const customerService = {
             first_name, last_name, phone_number, email,
             address (*)
           ),
-          worker:worker_id (first_name, last_name, phone_number),
+          assignment (*, worker:worker_id (id, first_name, last_name, phone_number)),
           time_slot:time_slot_id (start_time, end_time),
           order_details (
             quantity, sub_total_price,
@@ -65,6 +65,11 @@ export const customerService = {
             [custAddr?.house_number, custAddr?.street, custAddr?.ward, custAddr?.province].filter(Boolean).join(', ') || 
             'Chưa cập nhật địa chỉ';
 
+          const primaryAssign = Array.isArray(row.assignment) && row.assignment.length > 0 ? row.assignment[0] : null;
+          const primaryWorker = primaryAssign?.worker;
+          const assignedWorkerId = primaryAssign?.worker_id ? Number(primaryAssign.worker_id) : undefined;
+          const techName = primaryWorker ? `${primaryWorker.last_name || ''} ${primaryWorker.first_name || ''}`.trim() : undefined;
+
           return {
             id: String(row.id),
             fullName: row.customer ? `${row.customer.last_name} ${row.customer.first_name}`.trim() : 'Khách hàng',
@@ -80,10 +85,10 @@ export const customerService = {
             notes: row.note || row.notes || '',
             createdAt: row.created_at || row.order_time || new Date().toISOString(),
             status: row.status as any,
-            technicianName: row.worker ? `${row.worker.last_name} ${row.worker.first_name}`.trim() : undefined,
-            technicianPhone: row.worker?.phone_number || undefined,
-            workerId: row.worker_id ? Number(row.worker_id) : undefined,
-            technicianId: row.worker_id ? Number(row.worker_id) : undefined,
+            technicianName: techName,
+            technicianPhone: primaryWorker?.phone_number || undefined,
+            workerId: assignedWorkerId,
+            technicianId: assignedWorkerId,
             estimatedCost: Number(row.total_price || 0),
             finalCost: row.status === 'completed' ? Number(row.total_price || 0) : undefined,
           };
