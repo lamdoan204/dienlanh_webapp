@@ -98,6 +98,9 @@ export const PRICING_CATEGORIES = [
   }
 ];
 export const PROJECT_IMAGES = [
-  "/images/work-2.jpg",
-  "/images/work-3.jpg",
+  "/images/i2.jpg",
+  "/images/i3.jpg",
+  "/images/i4.jpg",
+  "/images/i5.jpg",
+  "/images/i6.jpg",
 ];
