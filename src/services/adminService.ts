@@ -35,6 +35,7 @@ export const adminService = {
           customer:customer_id(*, address(*)),
           time_slots(*),
           order_details(*, services(*)),
+          detail_supplies_order(*, supplies(*)),
           assignment(*, worker:worker_id(*, worker_star(*)))
         `)
         .order('order_time', { ascending: false });
@@ -118,6 +119,35 @@ export const adminService = {
           };
         });
 
+        // Order supplies items
+        const rawSupplies = order.detail_supplies_order || [];
+        const orderSupplies = rawSupplies.map((s: any) => {
+          const sup = s.supplies;
+          return {
+            id: Number(s.id),
+            order_id: Number(s.order_id || order.id),
+            supply_id: Number(s.supply_id),
+            quantity: Number(s.quantity || 1),
+            price: Number(s.price || 0),
+            supply_name: sup?.name || 'Vật tư',
+            supply_device: sup?.device || '',
+            supply_type: sup?.type || '',
+            supply_unit: sup?.unit || 'bộ',
+            unit_price: sup?.unit_price ? Number(sup.unit_price) : undefined,
+            supply: sup
+              ? {
+                  id: Number(sup.id),
+                  name: sup.name,
+                  device: sup.device,
+                  type: sup.type,
+                  unit: sup.unit,
+                  unit_price: sup.unit_price !== null ? Number(sup.unit_price) : null,
+                  note_detail: sup.note_detail
+                }
+              : undefined
+          };
+        });
+
         // Human readable status text
         let statusText = 'Chờ xác nhận';
         if (order.status === 'verified') statusText = 'Đã xác nhận & Phân công';
@@ -126,6 +156,9 @@ export const adminService = {
 
         // Assignment date
         const latestAssign = assignList.length > 0 ? assignList[assignList.length - 1] : null;
+
+        const rawCustomerNote = order.customer_note || '';
+        const rawAdminNote = order.admin_note || '';
 
         return {
           id: order.id,
@@ -141,13 +174,16 @@ export const adminService = {
           status: order.status || 'pending',
           statusText,
           totalPrice: Number(order.total_price || 0),
-          note: order.note || '',
+          note: rawCustomerNote,
+          customerNote: rawCustomerNote,
+          adminNote: rawAdminNote,
           workerId: primaryWorkerId,
           workerName,
           workerPhone,
           workerStars,
           assignedWorkers,
           items,
+          orderSupplies,
           assignmentCreatedAt: latestAssign?.created_at || null
         };
       });
@@ -222,10 +258,50 @@ export const adminService = {
   },
 
   /**
+   * Delete order completely from database (including child records)
+   */
+  async deleteOrder(orderId: number): Promise<{ success: boolean; message?: string }> {
+    if (!supabase) return { success: false, message: 'Supabase client chưa kết nối' };
+
+    try {
+      // 1. Delete child records first to satisfy foreign key constraints
+      await supabase.from('detail_supplies_order').delete().eq('order_id', orderId);
+      await supabase.from('assignment').delete().eq('order_id', orderId);
+      await supabase.from('order_details').delete().eq('order_id', orderId);
+
+      try {
+        await supabase.from('customer_reviews').delete().eq('order_id', orderId);
+      } catch (e) {
+        // Table or column might not exist
+      }
+      try {
+        await supabase.from('reviews').delete().eq('order_id', orderId);
+      } catch (e) {
+        // Table or column might not exist
+      }
+
+      // 2. Delete main order
+      const { error } = await supabase.from('orders').delete().eq('id', orderId);
+      if (error) {
+        console.error('Error deleting order from database:', error);
+        return { success: false, message: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
+      console.error('Exception deleting order:', err);
+      return { success: false, message: err.message || 'Lỗi hệ thống khi xóa đơn hàng' };
+    }
+  },
+
+  /**
    * Update order status directly
    */
   async updateOrderStatus(orderId: number, status: 'pending' | 'verified' | 'completed' | 'cancelled'): Promise<{ success: boolean; message?: string }> {
     if (!supabase) return { success: false, message: 'Supabase client chưa kết nối' };
+
+    if (status === 'cancelled') {
+      return this.deleteOrder(orderId);
+    }
 
     const nowIso = new Date().toISOString();
     const updatePayload: any = {
@@ -462,7 +538,7 @@ export const adminService = {
     const { data, error } = await supabase
       .from('users')
       .select('*, address(*), orders:orders!customer_id(*)')
-      .in('role', ['customer', 'loyal_customer', 'unregistered_customer'])
+      .in('role', ['customer', 'loyal_customer', 'unregistered_customer', 'guest_customer', 'guest'])
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -488,7 +564,7 @@ export const adminService = {
       const firstName = u.first_name || '';
       const fullName = (lastName + ' ' + firstName).trim() || 'Khách hàng';
 
-      const isGuest = u.role === 'unregistered_customer' || !u.password || u.password.trim() === '' || (u.email && u.email.endsWith('@guest.local'));
+      const isGuest = u.role === 'unregistered_customer' || u.role === 'guest_customer' || u.role === 'guest' || !u.password || u.password.trim() === '' || (u.email && u.email.endsWith('@guest.local'));
 
       return {
         id: String(u.id),
@@ -527,7 +603,7 @@ export const adminService = {
     house_number?: string;
     full_address?: string;
     address?: string;
-  }): Promise<{ success: boolean; message?: string }> {
+  }): Promise<{ success: boolean; message?: string; customer?: AdminCustomer; addressId?: number }> {
     if (!supabase) return { success: false, message: 'Supabase client chưa kết nối' };
 
     const cleanPhone = cust.phone_number.trim().replace(/\s+/g, '');
@@ -559,7 +635,7 @@ export const adminService = {
       phone_number: cleanPhone,
       email: null,
       password: null,
-      role: 'unregistered_customer'
+      role: 'guest_customer'
     };
 
     let { data, error } = await supabase.from('users').insert([insertPayload]).select().single();
@@ -580,22 +656,49 @@ export const adminService = {
       return { success: false, message: error?.message || 'Lỗi khi thêm khách hàng' };
     }
 
+    let createdAddressId: number | undefined;
     const finalFullAddress = cust.full_address?.trim() || cust.address?.trim();
     if (finalFullAddress) {
-      const { error: addrError } = await supabase.from('address').insert([{
+      const { data: addrData, error: addrError } = await supabase.from('address').insert([{
         user_id: data.id,
         province: cust.province?.trim() || 'Chưa cập nhật',
         ward: cust.ward?.trim() || 'Chưa cập nhật',
         street: cust.street?.trim() || null,
         house_number: cust.house_number?.trim() || null,
         full_address: finalFullAddress
-      }]);
+      }]).select('id').single();
       if (addrError) {
         console.error('Error adding address:', addrError);
+      } else if (addrData) {
+        createdAddressId = addrData.id;
       }
     }
 
-    return { success: true };
+    const fullName = `${cleanLastName} ${cleanFirstName}`.trim();
+    const customerObj: AdminCustomer = {
+      id: String(data.id),
+      numericId: data.id,
+      first_name: cleanFirstName,
+      last_name: cleanLastName,
+      code: `KH-${String(data.id).padStart(4, '0')}`,
+      name: fullName,
+      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=005396&color=fff`,
+      phone: cleanPhone,
+      email: 'Chưa tạo tài khoản',
+      address: finalFullAddress || 'Chưa cập nhật địa chỉ',
+      province: cust.province || '',
+      ward: cust.ward || '',
+      street: cust.street || '',
+      house_number: cust.house_number || '',
+      hasAccount: false,
+      created_at: data.created_at || new Date().toISOString(),
+      totalOrders: 0,
+      totalSpend: 0,
+      lastServiceDate: 'Chưa có đơn',
+      lastServiceType: 'N/A'
+    };
+
+    return { success: true, customer: customerObj, addressId: createdAddressId };
   },
 
   async updateGuestCustomer(userId: number, cust: {
@@ -834,6 +937,170 @@ export const adminService = {
       return false;
     }
     return true;
+  },
+
+  /**
+   * Create a new order directly by Admin for any customer (including guest / unregistered customers)
+   */
+  async createAdminOrder(payload: {
+    customerId: number;
+    timeSlotId: number;
+    appointmentDate: string; // YYYY-MM-DD
+    items: Array<{
+      serviceId: number;
+      quantity: number;
+      unitPrice: number;
+    }>;
+    totalPrice: number;
+    note?: string;
+    customerNote?: string;
+    adminNote?: string;
+    customer_note?: string;
+    admin_note?: string;
+    status?: 'pending' | 'verified';
+    assignedWorkerIds?: number[];
+    fullAddress?: string;
+    province?: string;
+    ward?: string;
+    street?: string;
+    houseNumber?: string;
+  }): Promise<{ success: boolean; orderId?: number; message?: string }> {
+    if (!supabase) return { success: false, message: 'Supabase client chưa kết nối' };
+
+    try {
+      // 1. If fullAddress provided and customer has no address, save address
+      if (payload.fullAddress) {
+        const { data: existAddr } = await supabase
+          .from('address')
+          .select('id')
+          .eq('user_id', payload.customerId)
+          .maybeSingle();
+
+        if (!existAddr) {
+          await supabase.from('address').insert([{
+            user_id: payload.customerId,
+            province: payload.province || 'Chưa cập nhật',
+            ward: payload.ward || 'Chưa cập nhật',
+            street: payload.street || null,
+            house_number: payload.houseNumber || null,
+            full_address: payload.fullAddress
+          }]);
+        }
+      }
+
+      // 2. Insert into orders table
+      const initialStatus = payload.assignedWorkerIds && payload.assignedWorkerIds.length > 0 ? 'verified' : (payload.status || 'pending');
+      const appointmentTimeStr = payload.appointmentDate ? `${payload.appointmentDate}T08:00:00` : new Date().toISOString();
+      const finalCustomerNote = payload.customerNote?.trim() || payload.customer_note?.trim() || null;
+      const finalAdminNote = payload.adminNote?.trim() || payload.admin_note?.trim() || null;
+
+      const { data: orderData, error: orderErr } = await supabase
+        .from('orders')
+        .insert([{
+          customer_id: payload.customerId,
+          time_slot_id: payload.timeSlotId,
+          appointment_time: appointmentTimeStr,
+          status: initialStatus,
+          total_price: payload.totalPrice,
+          order_time: new Date().toISOString(),
+          customer_note: finalCustomerNote,
+          admin_note: finalAdminNote
+        }])
+        .select('id')
+        .single();
+
+      if (orderErr || !orderData) {
+        console.error('Error creating admin order:', orderErr);
+        return { success: false, message: orderErr?.message || 'Lỗi khi tạo đơn hàng' };
+      }
+
+      const orderId = orderData.id;
+
+      // 3. Insert into order_details table
+      if (payload.items && payload.items.length > 0) {
+        const detailsToInsert = payload.items.map(item => ({
+          order_id: orderId,
+          service_id: Number(item.serviceId),
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          sub_total_price: item.quantity * item.unitPrice
+        }));
+
+        const { error: detailErr } = await supabase
+          .from('order_details')
+          .insert(detailsToInsert);
+
+        if (detailErr) {
+          console.error('Error inserting order_details:', detailErr);
+        }
+      }
+
+      // 4. If assignedWorkerIds provided, insert into assignment table
+      if (payload.assignedWorkerIds && payload.assignedWorkerIds.length > 0) {
+        const nowIso = new Date().toISOString();
+        const assignRows = payload.assignedWorkerIds.map(wId => ({
+          order_id: orderId,
+          worker_id: Number(wId),
+          created_at: nowIso,
+          updated_at: nowIso
+        }));
+
+        const { error: assignErr } = await supabase
+          .from('assignment')
+          .insert(assignRows);
+
+        if (assignErr) {
+          console.warn('Error inserting assignments:', assignErr);
+        }
+      }
+
+      return { success: true, orderId };
+    } catch (err: any) {
+      console.error('Exception in createAdminOrder:', err);
+      return { success: false, message: err?.message || 'Lỗi không xác định khi tạo đơn' };
+    }
+  },
+
+  /**
+   * Update notes for an order (customer_note and/or admin_note)
+   */
+  async updateAdminOrderNotes(
+    orderId: number | string,
+    notes: { customerNote?: string; adminNote?: string }
+  ): Promise<{ success: boolean; message?: string }> {
+    if (!supabase) return { success: false, message: 'Supabase client chưa kết nối' };
+
+    try {
+      const numId = Number(orderId);
+      if (isNaN(numId)) {
+        return { success: false, message: 'Mã đơn hàng không hợp lệ' };
+      }
+
+      const updatePayload: any = {};
+
+      if (notes.customerNote !== undefined) {
+        updatePayload.customer_note = notes.customerNote ? notes.customerNote.trim() : null;
+      }
+
+      if (notes.adminNote !== undefined) {
+        updatePayload.admin_note = notes.adminNote ? notes.adminNote.trim() : null;
+      }
+
+      const { error } = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .eq('id', numId);
+
+      if (error) {
+        console.error('Error updating order notes:', error);
+        return { success: false, message: error.message || 'Lỗi khi cập nhật ghi chú đơn hàng' };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Exception in updateAdminOrderNotes:', err);
+      return { success: false, message: err?.message || 'Lỗi không xác định' };
+    }
   }
 };
 

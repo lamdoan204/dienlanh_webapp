@@ -59,8 +59,13 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
   // Fetch addresses on mount or when user Profile changes
   useEffect(() => {
+    if (!userProfile?.id) {
+      setAddresses([]);
+      setIsLoadingAddresses(false);
+      return;
+    }
     let isMounted = true;
-    const userId = userProfile?.id || 1;
+    const userId = userProfile.id;
     
     setIsLoadingAddresses(true);
     addressService.getUserAddresses(userId).then((data) => {
@@ -216,6 +221,39 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   };
 
   const fullName = `${profileForm.lastName} ${profileForm.firstName}`.trim() || 'Khách hàng';
+
+  if (!userProfile) {
+    return (
+      <div className="pt-24 lg:pt-28 pb-16 max-w-xl mx-auto px-4 sm:px-6">
+        <div className="bg-white rounded-2xl border border-[#c1c7d3]/40 shadow-sm p-8 text-center">
+          <div className="w-16 h-16 bg-[#e9edff] text-[#005396] rounded-2xl flex items-center justify-center mx-auto mb-4 border border-[#005396]/20">
+            <span className="material-symbols-outlined text-3xl">manage_accounts</span>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-bold text-[#141b2b] mb-2">
+            Tài Khoản Cá Nhân
+          </h2>
+          <p className="text-xs sm:text-sm text-[#414751] mb-6 leading-relaxed">
+            Vui lòng đăng nhập hoặc đăng ký tài khoản để xem và cập nhật thông tin cá nhân, quản lý sổ địa chỉ nhận dịch vụ.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => setActiveTab('auth')}
+              className="bg-[#005396] hover:bg-[#003868] text-white font-bold py-3 px-6 rounded-xl text-sm transition-all shadow-sm cursor-pointer flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-lg">login</span>
+              <span>Đăng nhập ngay</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('home')}
+              className="bg-[#f1f3ff] hover:bg-[#e2e7ff] text-[#005396] font-bold py-3 px-6 rounded-xl text-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <span>Về trang chủ</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pt-20 lg:pt-24 pb-16 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -640,12 +678,12 @@ export const AccountPage: React.FC<AccountPageProps> = ({
             <span className="material-symbols-outlined text-[#005396]">support_agent</span>
             <span>Hỗ trợ kỹ thuật 24/7</span>
           </h3>
-          <p className="text-xs text-[#414751]">Hotline: <strong className="text-[#ba1a1a]">1900 6868</strong> • Email: support@hvacmasters.com</p>
+          <p className="text-xs text-[#414751]">Zalo / Hotline: <strong className="text-[#ba1a1a]">0352572821</strong> • Email: support@dienlanhcongthuong.com</p>
           <a
-            href="tel:19006868"
+            href="tel:0352572821"
             className="text-xs font-bold text-[#005396] hover:underline cursor-pointer pt-1 inline-block"
           >
-            Gọi hỗ trợ ngay &rarr;
+            Liên hệ Zalo / Gọi ngay &rarr;
           </a>
         </div>
       </div>

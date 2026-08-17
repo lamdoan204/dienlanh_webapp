@@ -47,7 +47,7 @@ export const commonService = {
    */
   async fetchReviews(): Promise<CustomerReview[]> {
     if (!supabase) {
-      return commonService.getFallbackReviews();
+      return [];
     }
     try {
       const { data, error } = await supabase
@@ -63,15 +63,19 @@ export const commonService = {
         `)
         .order('created_at', { ascending: false });
 
-      if (error || !data || data.length === 0) {
+      if (error) {
         return commonService.fetchReviewsLegacy();
+      }
+
+      if (!data || data.length === 0) {
+        return [];
       }
 
       return data.map((row: any) => {
         const serviceType = row.orders?.order_details?.[0]?.services?.service_type || 'repair';
         return {
           id: String(row.id),
-          author: row.users ? `${row.users.last_name} ${row.users.first_name}`.trim() : (row.author || 'Khách hàng'),
+          author: row.users ? `${row.users.last_name || ''} ${row.users.first_name || ''}`.trim() : (row.author || 'Khách hàng'),
           avatar: row.users?.avatar || row.avatar || undefined,
           rating: Number(row.stars || row.rating || 5),
           date: row.created_at ? new Date(row.created_at).toLocaleDateString('vi-VN') : (row.date || 'Hôm nay'),
@@ -82,22 +86,22 @@ export const commonService = {
       });
     } catch (err) {
       console.error('Error fetching reviews:', err);
-      return commonService.getFallbackReviews();
+      return [];
     }
   },
 
   async fetchReviewsLegacy(): Promise<CustomerReview[]> {
-    if (!supabase) return commonService.getFallbackReviews();
+    if (!supabase) return [];
     const { data, error } = await supabase.from('reviews').select('*').order('created_at', { ascending: false });
-    if (error || !data || data.length === 0) return commonService.getFallbackReviews();
+    if (error || !data || data.length === 0) return [];
     return data.map((row: any) => ({
       id: String(row.id),
       author: row.author || 'Khách hàng',
       avatar: row.avatar || undefined,
-      rating: Number(row.rating || 5),
-      date: row.date || new Date(row.created_at).toLocaleDateString('vi-VN'),
+      rating: Number(row.stars || row.rating || 5),
+      date: row.date || (row.created_at ? new Date(row.created_at).toLocaleDateString('vi-VN') : 'Hôm nay'),
       serviceType: row.service_type || 'repair',
-      comment: row.comment || '',
+      comment: row.detail || row.comment || '',
       verified: row.verified ?? true,
     }));
   },
@@ -150,19 +154,20 @@ export const commonService = {
    * Check if a specific order has already been reviewed
    */
   async checkOrderIsReviewed(orderId: string | number): Promise<{ isReviewed: boolean; review?: CustomerReview }> {
-    try {
-      const stored = localStorage.getItem('reviewed_orders_map');
-      if (stored) {
-        const map = JSON.parse(stored);
-        if (map[String(orderId)]) {
-          return { isReviewed: true, review: map[String(orderId)] };
+    if (!supabase) {
+      try {
+        const stored = localStorage.getItem('reviewed_orders_map');
+        if (stored) {
+          const map = JSON.parse(stored);
+          if (map[String(orderId)]) {
+            return { isReviewed: true, review: map[String(orderId)] };
+          }
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
+      return { isReviewed: false };
     }
-
-    if (!supabase) return { isReviewed: false };
 
     try {
       const numId = Number(orderId);
@@ -170,26 +175,44 @@ export const commonService = {
         return { isReviewed: false };
       }
 
-      const { data, error } = await supabase
+      // 1. Primary query: Query reviews table directly with order_id
+      const { data: rawData, error: rawErr } = await supabase
         .from('reviews')
         .select('*')
         .eq('order_id', numId)
         .limit(1);
 
-      if (!error && data && data.length > 0) {
-        const row = data[0];
+      if (!rawErr && rawData && rawData.length > 0) {
+        const row = rawData[0];
+        let authorName = row.author || 'Khách hàng';
+
+        // Fetch user info for review author if user_id exists
+        if (row.user_id) {
+          const { data: uData } = await supabase
+            .from('users')
+            .select('first_name, last_name, phone_number')
+            .eq('id', row.user_id)
+            .maybeSingle();
+          if (uData) {
+            const nameStr = `${uData.last_name || ''} ${uData.first_name || ''}`.trim();
+            if (nameStr) authorName = nameStr;
+            else if (uData.phone_number) authorName = uData.phone_number;
+          }
+        }
+
         const rev: CustomerReview = {
           id: String(row.id),
-          author: row.author || 'Khách hàng',
+          author: authorName,
           rating: Number(row.stars || row.rating || 5),
-          date: row.date || new Date(row.created_at).toLocaleDateString('vi-VN'),
-          serviceType: row.service_type || 'Hoàn thành',
-          comment: row.detail || row.comment || '',
+          date: row.created_at ? new Date(row.created_at).toLocaleDateString('vi-VN') : (row.date || 'Gần đây'),
+          serviceType: 'Đánh giá dịch vụ',
+          comment: row.detail || row.comment || 'Không có bình luận',
           verified: true,
           orderId: String(orderId)
         };
         return { isReviewed: true, review: rev };
       }
+
       return { isReviewed: false };
     } catch {
       return { isReviewed: false };
@@ -481,25 +504,6 @@ export const commonService = {
   },
 
   getFallbackReviews(): CustomerReview[] {
-    return [
-      {
-        id: 'rev-1',
-        author: 'Trần Văn Minh',
-        rating: 5,
-        date: '20/10/2024',
-        serviceType: 'repair',
-        comment: 'Kỹ thuật viên đến rất đúng giờ, thái độ lịch sự và khắc phục lỗi rò rỉ nước triệt để.',
-        verified: true
-      },
-      {
-        id: 'rev-2',
-        author: 'Nguyễn Thị Hương',
-        rating: 5,
-        date: '18/10/2024',
-        serviceType: 'cleaning',
-        comment: 'Dịch vụ vệ sinh máy lạnh rất sạch sẽ, có phủ bạt chống bắn bẩn lên tường.',
-        verified: true
-      }
-    ];
+    return [];
   }
 };

@@ -26,10 +26,11 @@ export interface AdminPurchasingNotificationPayload {
   items: Array<{
     device: string;
     quantity: number;
-    desired_price: number;
+    desired_price?: number;
+    price?: number;
     note?: string;
   }>;
-  totalDesiredPrice: number;
+  totalDesiredPrice?: number;
   devicesSummary: string;
 }
 

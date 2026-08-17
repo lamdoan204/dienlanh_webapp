@@ -1,6 +1,44 @@
-export type ActiveTab = 'home' | 'pricing' | 'booking' | 'purchasing' | 'reviews' | 'history' | 'account' | 'auth' | 'onboarding' | 'admin';
+export type ActiveTab = 'home' | 'pricing' | 'supplies' | 'articles' | 'booking' | 'purchasing' | 'reviews' | 'history' | 'account' | 'auth' | 'onboarding' | 'admin';
 
-export type AdminSubTab = 'requests' | 'purchasing' | 'technicians' | 'customers' | 'services';
+export type ArticleCategory = 'Kiến thức' | 'Hướng dẫn sử dụng' | 'Mẹo sử dụng' | 'Vệ sinh bảo dưỡng';
+
+export interface ArticleItem {
+  id: number;
+  title: string;
+  slug: string; // url_slug trong DB
+  context: string; // Nội dung bài viết (cột context trong DB)
+  cover_image?: string | null; // Đường dẫn ảnh trong storage bucket 'post_image'
+  category: ArticleCategory | string;
+  created_at: string;
+  status: boolean; // true = Hiển thị (Public), false = Nháp (Bản nháp)
+  author?: string | null;
+}
+
+export interface SupplyItem {
+  id: number;
+  name: string;
+  device?: string | null;
+  type?: string | null;
+  unit?: string | null;
+  unit_price?: number | null;
+  note_detail?: string | null;
+}
+
+export interface OrderSupplyItem {
+  id?: number;
+  order_id: number;
+  supply_id: number;
+  quantity: number;
+  price: number; // Giá tiền tính theo số lượng
+  supply_name?: string;
+  supply_device?: string;
+  supply_type?: string;
+  supply_unit?: string;
+  unit_price?: number;
+  supply?: SupplyItem;
+}
+
+export type AdminSubTab = 'requests' | 'purchasing' | 'technicians' | 'customers' | 'services' | 'supplies' | 'articles';
 
 export interface AdminTechnician {
   id: string;
@@ -82,12 +120,15 @@ export interface AdminOrder {
   statusText: string;
   totalPrice: number;
   note: string;
+  customerNote?: string;
+  adminNote?: string;
   workerId: number | null;
   workerName: string;
   workerPhone: string;
   workerStars: number;
   assignedWorkers: AssignedWorker[];
   items: AdminOrderItem[];
+  orderSupplies?: OrderSupplyItem[];
   assignmentCreatedAt?: string | null;
 }
 
@@ -159,7 +200,7 @@ export interface UserProfile {
   last_name: string;
   email: string;
   phone_number: string;
-  role: 'customer' | 'admin' | 'loyal_customer' | 'unregistered_customer' | 'worker';
+  role: 'customer' | 'admin' | 'loyal_customer' | 'unregistered_customer' | 'guest_customer' | 'guest' | 'worker';
   avatar?: string | null;
   birth_year?: number | null;
   created_at?: string;
@@ -217,6 +258,11 @@ export interface DBOrder {
   status: string;
   order_time: string;
   total_price: number;
+  note?: string | null;
+  customer_note?: string | null;
+  admin_note?: string | null;
+  created_at?: string;
+  updated_at?: string;
   
   // Joined data
   customer?: DBUser;
@@ -252,6 +298,7 @@ export interface BookingRecord extends BookingFormData {
   workerId?: number;
   estimatedCost: number;
   finalCost?: number;
+  orderSupplies?: OrderSupplyItem[];
 }
 
 export interface CustomerReview {
@@ -275,7 +322,7 @@ export type PurchasingDeviceType = 'Tủ lạnh' | 'Máy giặt' | 'Máy lạnh'
 export interface PurchasingItemInput {
   device: PurchasingDeviceType | string;
   quantity: number;
-  desired_price: number; // Tổng giá mong muốn cho nhóm thiết bị này
+  desired_price?: number; // Tùy chọn (giá thu mua do admin thẩm định)
   note: string; // Mô tả tình trạng thiết bị
   images?: File[];
   previewUrls?: string[];
@@ -302,8 +349,9 @@ export interface PurchasingOrderDetail {
   purchassing_order_id: number;
   device: string;
   quantity: number;
-  desired_price: number | null;
-  verified_price: number | null;
+  desired_price?: number | null;
+  verified_price?: number | null;
+  price?: number | null; // Database column in purchassing_order_detail
   note: string | null;
   images?: string[];
   previewUrls?: string[];
@@ -331,6 +379,6 @@ export interface PurchasingOrderRecord {
   timeSlotStr: string;
   appointment_time: string | null;
   details: PurchasingOrderDetail[];
-  totalDesiredPrice: number;
+  totalDesiredPrice?: number;
   totalVerifiedPrice: number;
 }

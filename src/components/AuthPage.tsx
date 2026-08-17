@@ -2,16 +2,24 @@ import React, { useState } from 'react';
 import { ActiveTab, UserProfile } from '../types';
 import { authService } from '../services/authService';
 
+interface AuthNotice {
+  title: string;
+  message: string;
+  type?: 'admin' | 'history' | 'account' | 'general';
+}
+
 interface AuthPageProps {
   setActiveTab: (tab: ActiveTab) => void;
   initialMode?: 'login' | 'register';
   onLoginSuccess?: (user: UserProfile) => void;
+  authNotice?: AuthNotice | null;
 }
 
 export const AuthPage: React.FC<AuthPageProps> = ({
   setActiveTab,
   initialMode = 'login',
-  onLoginSuccess
+  onLoginSuccess,
+  authNotice
 }) => {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>(initialMode);
   
@@ -233,6 +241,27 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               : 'Nhập số điện thoại đã đăng ký để lấy lại mật khẩu'}
           </p>
         </div>
+
+        {/* Auth Notice (e.g. Redirect from Admin / History / Account) */}
+        {authNotice && (
+          <div
+            className={`mb-6 p-4 rounded-xl border text-xs sm:text-sm flex items-start gap-3 shadow-xs ${
+              authNotice.type === 'admin'
+                ? 'bg-amber-50/90 border-amber-300 text-amber-900'
+                : 'bg-blue-50/90 border-blue-200 text-blue-900'
+            }`}
+          >
+            <span className={`material-symbols-outlined text-xl shrink-0 mt-0.5 ${
+              authNotice.type === 'admin' ? 'text-amber-700' : 'text-blue-700'
+            }`}>
+              {authNotice.type === 'admin' ? 'admin_panel_settings' : 'shield'}
+            </span>
+            <div>
+              <div className="font-bold">{authNotice.title}</div>
+              <p className="mt-0.5 opacity-90 leading-relaxed">{authNotice.message}</p>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 p-3 bg-[#ffdad6] border border-[#ba1a1a]/30 text-[#ba1a1a] rounded-xl text-xs font-semibold text-center flex items-center justify-center gap-2">

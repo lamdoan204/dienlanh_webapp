@@ -32,6 +32,10 @@ export const customerService = {
           order_details (
             quantity, sub_total_price,
             services (name, service_type, device_type)
+          ),
+          detail_supplies_order (
+            id, quantity, price, supply_id,
+            supplies (id, name, device, type, unit, unit_price, note_detail)
           )
         `)
         .order('created_at', { ascending: false });
@@ -70,6 +74,34 @@ export const customerService = {
           const assignedWorkerId = primaryAssign?.worker_id ? Number(primaryAssign.worker_id) : undefined;
           const techName = primaryWorker ? `${primaryWorker.last_name || ''} ${primaryWorker.first_name || ''}`.trim() : undefined;
 
+          const rawSupplies = row.detail_supplies_order || [];
+          const orderSupplies = rawSupplies.map((s: any) => {
+            const sup = s.supplies;
+            return {
+              id: Number(s.id),
+              order_id: Number(s.order_id || row.id),
+              supply_id: Number(s.supply_id),
+              quantity: Number(s.quantity || 1),
+              price: Number(s.price || 0),
+              supply_name: sup?.name || 'Vật tư',
+              supply_device: sup?.device || '',
+              supply_type: sup?.type || '',
+              supply_unit: sup?.unit || 'bộ',
+              unit_price: sup?.unit_price ? Number(sup.unit_price) : undefined,
+              supply: sup
+                ? {
+                    id: Number(sup.id),
+                    name: sup.name,
+                    device: sup.device,
+                    type: sup.type,
+                    unit: sup.unit,
+                    unit_price: sup.unit_price !== null ? Number(sup.unit_price) : null,
+                    note_detail: sup.note_detail
+                  }
+                : undefined
+            };
+          });
+
           return {
             id: String(row.id),
             fullName: row.customer ? `${row.customer.last_name} ${row.customer.first_name}`.trim() : 'Khách hàng',
@@ -80,9 +112,10 @@ export const customerService = {
             servicePackage: firstService?.service_type || 'cleaning',
             serviceName: serviceNamesCombined,
             items,
+            orderSupplies,
             selectedDate: row.appointment_time ? new Date(row.appointment_time).toISOString().split('T')[0] : '',
             selectedTimeSlot: row.time_slot ? `${row.time_slot.start_time.slice(0,5)} - ${row.time_slot.end_time.slice(0,5)}` : '08:00 - 10:00',
-            notes: row.note || row.notes || '',
+            notes: row.customer_note || row.note || row.notes || '',
             createdAt: row.created_at || row.order_time || new Date().toISOString(),
             status: row.status as any,
             technicianName: techName,
@@ -185,7 +218,7 @@ export const customerService = {
             last_name: lastName,
             email: userEmail,
             phone_number: booking.phone?.trim() || null,
-            role: 'unregistered_customer',
+            role: 'guest_customer',
           };
 
           let { data: newUser, error: newUserErr } = await supabase
@@ -266,7 +299,7 @@ export const customerService = {
               status: 'pending',
               total_price: booking.estimatedCost || 0,
               order_time: new Date().toISOString(),
-              note: booking.notes || null,
+              customer_note: booking.notes || null,
             },
           ])
           .select('id')

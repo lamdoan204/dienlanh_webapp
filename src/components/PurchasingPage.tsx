@@ -19,7 +19,6 @@ interface PurchasingPageProps {
 interface DeviceSelectionState {
   enabled: boolean;
   quantity: number;
-  desiredPrice: number;
   note: string;
   images: File[];
   previewUrls: string[];
@@ -54,7 +53,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
   const [deviceFridge, setDeviceFridge] = useState<DeviceSelectionState>({
     enabled: true,
     quantity: 1,
-    desiredPrice: 1500000,
     note: '',
     images: [],
     previewUrls: [],
@@ -63,7 +61,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
   const [deviceWasher, setDeviceWasher] = useState<DeviceSelectionState>({
     enabled: false,
     quantity: 1,
-    desiredPrice: 1200000,
     note: '',
     images: [],
     previewUrls: [],
@@ -72,7 +69,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
   const [deviceAC, setDeviceAC] = useState<DeviceSelectionState>({
     enabled: false,
     quantity: 1,
-    desiredPrice: 2000000,
     note: '',
     images: [],
     previewUrls: [],
@@ -224,7 +220,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
       list.push({
         device: 'Tủ lạnh',
         quantity: Math.max(1, deviceFridge.quantity),
-        desired_price: Number(deviceFridge.desiredPrice) || 0,
         note: deviceFridge.note,
         images: deviceFridge.images,
         previewUrls: deviceFridge.previewUrls,
@@ -234,7 +229,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
       list.push({
         device: 'Máy giặt',
         quantity: Math.max(1, deviceWasher.quantity),
-        desired_price: Number(deviceWasher.desiredPrice) || 0,
         note: deviceWasher.note,
         images: deviceWasher.images,
         previewUrls: deviceWasher.previewUrls,
@@ -244,7 +238,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
       list.push({
         device: 'Máy lạnh',
         quantity: Math.max(1, deviceAC.quantity),
-        desired_price: Number(deviceAC.desiredPrice) || 0,
         note: deviceAC.note,
         images: deviceAC.images,
         previewUrls: deviceAC.previewUrls,
@@ -252,10 +245,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
     }
     return list;
   }, [deviceFridge, deviceWasher, deviceAC]);
-
-  const totalDesiredPrice = useMemo(() => {
-    return selectedItems.reduce((sum, item) => sum + item.desired_price, 0);
-  }, [selectedItems]);
 
   const totalDeviceCount = useMemo(() => {
     return selectedItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -362,7 +351,7 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
           Thu Mua Tủ Lạnh, Máy Giặt, Máy Lạnh Giá Cao
         </h1>
         <p className="text-sm sm:text-base text-[#414751] max-w-2xl mx-auto">
-          Định giá minh bạch, kiểm tra tận nơi nhanh chóng, thu mua đúng giá mong muốn và thanh toán ngay bằng tiền mặt hoặc chuyển khoản.
+          Định giá minh bạch, kiểm tra tận nơi nhanh chóng, thẩm định giá tốt nhất thị trường và thanh toán ngay bằng tiền mặt hoặc chuyển khoản.
         </p>
       </div>
 
@@ -380,11 +369,11 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
 
         <div className="bg-white p-4 rounded-xl border border-[#c1c7d3]/50 shadow-xs flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-xl bg-[#22c55e]/10 text-[#16a34a] flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-2xl">payments</span>
+            <span className="material-symbols-outlined text-2xl">price_check</span>
           </div>
           <div>
-            <h2 className="font-bold text-sm text-[#141b2b]">Giá mong muốn hợp lý</h2>
-            <p className="text-xs text-[#717783]">Khách hàng tự đề xuất mức giá kỳ vọng</p>
+            <h2 className="font-bold text-sm text-[#141b2b]">Định giá minh bạch</h2>
+            <p className="text-xs text-[#717783]">Báo giá chính xác sau khi thẩm định thiết bị</p>
           </div>
         </div>
 
@@ -727,40 +716,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
                       </div>
                     </div>
 
-                    {/* Desired Price */}
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="text-xs font-bold text-[#414751]">
-                          Giá tiền mong muốn (tổng {deviceFridge.quantity} cái)
-                        </label>
-                        <span className="text-xs font-extrabold text-[#005396]">
-                          {Number(deviceFridge.desiredPrice || 0).toLocaleString('vi-VN')} đ
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          step="50000"
-                          min="0"
-                          value={deviceFridge.desiredPrice || ''}
-                          onChange={(e) =>
-                            setDeviceFridge((prev) => ({
-                              ...prev,
-                              desiredPrice: Number(e.target.value) || 0,
-                            }))
-                          }
-                          placeholder="Ví dụ: 1500000"
-                          className="w-full pr-12 pl-3 py-2 bg-white border border-[#c1c7d3] rounded-xl text-sm font-bold text-[#141b2b] focus:border-[#005396] outline-hidden transition-all"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#717783]">
-                          VNĐ
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-[#717783] mt-1">
-                        * Giá mong muốn là tổng số tiền bạn muốn nhận cho cả {deviceFridge.quantity} cái tủ lạnh.
-                      </p>
-                    </div>
-
                     {/* Condition Note */}
                     <div>
                       <label className="block text-xs font-bold text-[#414751] mb-1">
@@ -910,40 +865,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
                       </div>
                     </div>
 
-                    {/* Desired Price */}
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="text-xs font-bold text-[#414751]">
-                          Giá tiền mong muốn (tổng {deviceWasher.quantity} cái)
-                        </label>
-                        <span className="text-xs font-extrabold text-[#005396]">
-                          {Number(deviceWasher.desiredPrice || 0).toLocaleString('vi-VN')} đ
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          step="50000"
-                          min="0"
-                          value={deviceWasher.desiredPrice || ''}
-                          onChange={(e) =>
-                            setDeviceWasher((prev) => ({
-                              ...prev,
-                              desiredPrice: Number(e.target.value) || 0,
-                            }))
-                          }
-                          placeholder="Ví dụ: 1200000"
-                          className="w-full pr-12 pl-3 py-2 bg-white border border-[#c1c7d3] rounded-xl text-sm font-bold text-[#141b2b] focus:border-[#005396] outline-hidden transition-all"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#717783]">
-                          VNĐ
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-[#717783] mt-1">
-                        * Giá mong muốn là tổng số tiền bạn muốn nhận cho cả {deviceWasher.quantity} cái máy giặt.
-                      </p>
-                    </div>
-
                     {/* Condition Note */}
                     <div>
                       <label className="block text-xs font-bold text-[#414751] mb-1">
@@ -1091,40 +1012,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
                         </button>
                         <span className="text-xs text-[#717783] font-medium">bộ</span>
                       </div>
-                    </div>
-
-                    {/* Desired Price */}
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="text-xs font-bold text-[#414751]">
-                          Giá tiền mong muốn (tổng {deviceAC.quantity} cái)
-                        </label>
-                        <span className="text-xs font-extrabold text-[#005396]">
-                          {Number(deviceAC.desiredPrice || 0).toLocaleString('vi-VN')} đ
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          step="50000"
-                          min="0"
-                          value={deviceAC.desiredPrice || ''}
-                          onChange={(e) =>
-                            setDeviceAC((prev) => ({
-                              ...prev,
-                              desiredPrice: Number(e.target.value) || 0,
-                            }))
-                          }
-                          placeholder="Ví dụ: 2000000"
-                          className="w-full pr-12 pl-3 py-2 bg-white border border-[#c1c7d3] rounded-xl text-sm font-bold text-[#141b2b] focus:border-[#005396] outline-hidden transition-all"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#717783]">
-                          VNĐ
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-[#717783] mt-1">
-                        * Giá mong muốn là tổng số tiền bạn muốn nhận cho cả {deviceAC.quantity} bộ máy lạnh.
-                      </p>
                     </div>
 
                     {/* Condition Note */}
@@ -1328,9 +1215,10 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
             </div>
 
             <div className="flex flex-col items-start lg:items-end w-full lg:w-auto border-t lg:border-t-0 border-white/20 pt-4 lg:pt-0">
-              <div className="text-xs text-blue-200 font-medium">Tổng giá bạn mong muốn:</div>
-              <div className="text-2xl sm:text-3xl font-black text-[#ffd700] mb-4">
-                {totalDesiredPrice.toLocaleString('vi-VN')} VNĐ
+              <div className="text-xs text-blue-200 font-medium">Báo giá thu mua:</div>
+              <div className="text-xl sm:text-2xl font-black text-[#ffd700] mb-4 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-xl">verified</span>
+                <span>Thẩm định tận nơi</span>
               </div>
 
               <button
@@ -1373,7 +1261,10 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
             <div className="bg-[#f8f9ff] rounded-2xl p-4 text-left text-xs space-y-2 mb-6 border border-[#c1c7d3]/30">
               <div className="font-bold text-sm text-[#141b2b] border-b border-[#e1e8fd] pb-1.5 mb-2 flex items-center justify-between">
                 <span>Chi tiết yêu cầu</span>
-                <span className="text-[#005396] font-extrabold">{totalDesiredPrice.toLocaleString('vi-VN')} đ</span>
+                <span className="text-[#005396] font-extrabold flex items-center gap-1">
+                  <span className="material-symbols-outlined text-sm">schedule</span>
+                  <span>Chờ thẩm định</span>
+                </span>
               </div>
               <p>
                 <strong>Khách hàng:</strong> {fullName} - {phone}
@@ -1429,9 +1320,9 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
                 onClick={() => {
                   setIsSuccessModalOpen(false);
                   // Reset form to place another
-                  setDeviceFridge({ enabled: true, quantity: 1, desiredPrice: 1500000, note: '', images: [], previewUrls: [] });
-                  setDeviceWasher({ enabled: false, quantity: 1, desiredPrice: 1200000, note: '', images: [], previewUrls: [] });
-                  setDeviceAC({ enabled: false, quantity: 1, desiredPrice: 2000000, note: '', images: [], previewUrls: [] });
+                  setDeviceFridge({ enabled: true, quantity: 1, note: '', images: [], previewUrls: [] });
+                  setDeviceWasher({ enabled: false, quantity: 1, note: '', images: [], previewUrls: [] });
+                  setDeviceAC({ enabled: false, quantity: 1, note: '', images: [], previewUrls: [] });
                 }}
                 className="py-3 px-4 border border-[#c1c7d3] hover:bg-[#f1f3ff] text-[#414751] font-bold rounded-xl text-sm transition-all cursor-pointer"
               >

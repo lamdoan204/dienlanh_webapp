@@ -129,9 +129,9 @@ export const HomePage: React.FC<HomePageProps> = ({ setActiveTab, onSelectBookin
               <span className="material-symbols-outlined text-2xl animate-pulse">phone_in_talk</span>
             </div>
             <div>
-              <div className="text-xs uppercase tracking-wider font-bold text-blue-200">Tổng đài hỗ trợ kỹ thuật &amp; Đặt lịch</div>
+              <div className="text-xs uppercase tracking-wider font-bold text-blue-200">Zalo / Hotline hỗ trợ kỹ thuật 24/7</div>
               <div className="text-lg sm:text-2xl font-extrabold text-white mt-0.5">
-                Hotline: <span className="text-[#ffd700]">1900 6868</span>
+                Zalo / Hotline: <span className="text-[#ffd700]">0352572821</span>
               </div>
             </div>
           </div>

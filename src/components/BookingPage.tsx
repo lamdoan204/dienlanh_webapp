@@ -894,9 +894,6 @@ export const BookingPage: React.FC<BookingPageProps> = ({
                             <h4 className="text-xs sm:text-sm font-bold text-[#141b2b]">
                               {srv.name}
                             </h4>
-                            <p className="text-[11px] text-[#414751] mt-0.5">
-                              {srv.deviceType} • {srv.category}
-                            </p>
                           </div>
 
                           <div className="flex items-center gap-3">

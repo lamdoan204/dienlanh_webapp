@@ -223,7 +223,7 @@ export const purchasingService = {
             last_name: lastName,
             email: userEmail,
             phone_number: input.phone?.trim() || null,
-            role: 'unregistered_customer',
+            role: 'guest_customer',
           };
 
           let { data: newUser, error: newUserErr } = await supabase
@@ -343,16 +343,29 @@ export const purchasingService = {
               purchassing_order_id: orderId,
               device: item.device,
               quantity: item.quantity || 1,
-              desired_price: item.desired_price || 0,
-              verified_price: null,
+              price: null,
               note: item.note?.trim() || null,
             };
 
-            const { data: insertedDetail, error: detailErr } = await supabase
+            let { data: insertedDetail, error: detailErr } = await supabase
               .from('purchassing_order_detail')
               .insert([detailPayload])
               .select('id')
               .single();
+
+            // If price column fails on older schema, retry with desired_price/verified_price
+            if (detailErr && detailErr.message?.includes('price')) {
+              delete detailPayload.price;
+              detailPayload.desired_price = 0;
+              detailPayload.verified_price = null;
+              const retry = await supabase
+                .from('purchassing_order_detail')
+                .insert([detailPayload])
+                .select('id')
+                .single();
+              insertedDetail = retry.data;
+              detailErr = retry.error;
+            }
 
             if (detailErr) {
               console.error('Error inserting detail for', item.device, detailErr);
@@ -373,8 +386,9 @@ export const purchasingService = {
             purchassing_order_id: orderId,
             device: String(item.device),
             quantity: item.quantity || 1,
-            desired_price: item.desired_price || null,
+            desired_price: null,
             verified_price: null,
+            price: null,
             note: item.note || null,
             images: uploadedUrls,
             previewUrls: uploadedUrls,
@@ -385,9 +399,8 @@ export const purchasingService = {
       const orderCode = `#TM-${String(orderId).padStart(4, '0')}`;
 
       // 5. Send notification email to Admin Gmails
-      const totalDesired = input.items.reduce((sum, it) => sum + (Number(it.desired_price) || 0), 0);
       const devicesSummary = input.items
-        .map((it) => `${it.device} (SL: ${it.quantity}, Giá mong muốn: ${Number(it.desired_price || 0).toLocaleString('vi-VN')} đ)`)
+        .map((it) => `${it.device} (SL: ${it.quantity}) - ${it.note || 'Chưa có ghi chú'}`)
         .join('; ');
 
       notificationService.notifyAdminsNewPurchasingOrder({
@@ -401,7 +414,7 @@ export const purchasingService = {
         appointmentDate: input.appointment_time,
         timeSlotId: input.time_slot_id,
         items: input.items,
-        totalDesiredPrice: totalDesired,
+        totalDesiredPrice: 0,
         devicesSummary,
       });
 
@@ -431,7 +444,7 @@ export const purchasingService = {
           timeSlotStr: 'Theo lịch hẹn',
           appointment_time: input.appointment_time,
           details: savedDetails,
-          totalDesiredPrice: totalDesired,
+          totalDesiredPrice: 0,
           totalVerifiedPrice: 0,
         };
         localPurchasing.unshift(record);
@@ -499,13 +512,18 @@ export const purchasingService = {
               if (supabase && row.id && d.id) {
                 previewUrls = await purchasingService.fetchDeviceDetailImages(row.id, d.id);
               }
+              const itemPrice = d.price !== undefined && d.price !== null
+                ? Number(d.price)
+                : (d.verified_price !== undefined && d.verified_price !== null ? Number(d.verified_price) : null);
+
               return {
                 id: d.id,
                 purchassing_order_id: d.purchassing_order_id,
                 device: d.device || 'Thiết bị',
                 quantity: Number(d.quantity || 1),
-                desired_price: d.desired_price !== null ? Number(d.desired_price) : null,
-                verified_price: d.verified_price !== null ? Number(d.verified_price) : null,
+                desired_price: d.desired_price !== null && d.desired_price !== undefined ? Number(d.desired_price) : null,
+                verified_price: itemPrice,
+                price: itemPrice,
                 note: d.note || '',
                 previewUrls: previewUrls.length > 0 ? previewUrls : (d.previewUrls || []),
               };
@@ -614,13 +632,18 @@ export const purchasingService = {
               if (supabase && row.id && d.id) {
                 previewUrls = await purchasingService.fetchDeviceDetailImages(row.id, d.id);
               }
+              const itemPrice = d.price !== undefined && d.price !== null
+                ? Number(d.price)
+                : (d.verified_price !== undefined && d.verified_price !== null ? Number(d.verified_price) : null);
+
               return {
                 id: d.id,
                 purchassing_order_id: d.purchassing_order_id,
                 device: d.device || 'Thiết bị',
                 quantity: Number(d.quantity || 1),
-                desired_price: d.desired_price !== null ? Number(d.desired_price) : null,
-                verified_price: d.verified_price !== null ? Number(d.verified_price) : null,
+                desired_price: d.desired_price !== null && d.desired_price !== undefined ? Number(d.desired_price) : null,
+                verified_price: itemPrice,
+                price: itemPrice,
                 note: d.note || '',
                 previewUrls: previewUrls.length > 0 ? previewUrls : (d.previewUrls || []),
               };
@@ -724,10 +747,20 @@ export const purchasingService = {
   ): Promise<{ success: boolean; message?: string }> {
     if (supabase) {
       try {
-        const { error } = await supabase
+        // Try updating `price` column first
+        let { error } = await supabase
           .from('purchassing_order_detail')
-          .update({ verified_price: verifiedPrice })
+          .update({ price: verifiedPrice })
           .eq('id', detailId);
+
+        // Fallback to `verified_price` if `price` column doesn't exist
+        if (error && error.message?.includes('price')) {
+          const retry = await supabase
+            .from('purchassing_order_detail')
+            .update({ verified_price: verifiedPrice })
+            .eq('id', detailId);
+          error = retry.error;
+        }
 
         if (error) {
           console.error('Error updating purchasing detail price:', error);

@@ -43,8 +43,16 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 
   // Load customer purchasing orders
   useEffect(() => {
-    setIsPurchasingLoading(true);
+    if (!userProfile) {
+      setPurchasingOrders([]);
+      return;
+    }
     const identifier = userProfile?.phone_number || userProfile?.email || '';
+    if (!identifier) {
+      setPurchasingOrders([]);
+      return;
+    }
+    setIsPurchasingLoading(true);
     purchasingService.fetchCustomerPurchasingOrders(identifier).then((orders) => {
       setPurchasingOrders(orders);
       if (orders.length > 0) {
@@ -230,6 +238,39 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
         return 0;
     }
   };
+
+  if (!userProfile) {
+    return (
+      <div className="pt-24 lg:pt-28 pb-16 max-w-xl mx-auto px-4 sm:px-6">
+        <div className="bg-white rounded-2xl border border-[#c1c7d3]/40 shadow-sm p-8 text-center">
+          <div className="w-16 h-16 bg-[#e9edff] text-[#005396] rounded-2xl flex items-center justify-center mx-auto mb-4 border border-[#005396]/20">
+            <span className="material-symbols-outlined text-3xl">history_toggle_off</span>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-bold text-[#141b2b] mb-2">
+            Vui lòng đăng nhập
+          </h2>
+          <p className="text-xs sm:text-sm text-[#414751] mb-6 leading-relaxed">
+            Bạn cần đăng nhập tài khoản để theo dõi lịch sử đặt lịch dịch vụ, trạng thái phân công kỹ thuật viên và các đơn yêu cầu thu mua thiết bị.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => setActiveTab('auth')}
+              className="bg-[#005396] hover:bg-[#003868] text-white font-bold py-3 px-6 rounded-xl text-sm transition-all shadow-sm cursor-pointer flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-lg">login</span>
+              <span>Đăng nhập ngay</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('home')}
+              className="bg-[#f1f3ff] hover:bg-[#e2e7ff] text-[#005396] font-bold py-3 px-6 rounded-xl text-sm transition-all cursor-pointer flex items-center justify-center gap-1.5"
+            >
+              <span>Về trang chủ</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="pt-24 lg:pt-28 pb-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -483,6 +524,110 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                       )}
                     </div>
 
+                    {/* Service Items Table */}
+                    {selectedBooking.items && selectedBooking.items.length > 0 && (
+                      <div className="bg-[#f9f9ff] p-5 rounded-2xl border border-[#c1c7d3]/30 space-y-3">
+                        <h4 className="font-bold text-[#141b2b] text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                          <span className="material-symbols-outlined text-[18px] text-[#005396]">build</span>
+                          Danh sách dịch vụ đặt hẹn ({selectedBooking.items.length})
+                        </h4>
+                        <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-[#f1f3ff] border-b border-gray-200">
+                                <th className="p-2.5 font-bold text-[#414751]">Tên dịch vụ</th>
+                                <th className="p-2.5 font-bold text-[#414751] text-center">Số lượng</th>
+                                <th className="p-2.5 font-bold text-[#414751] text-right">Đơn giá</th>
+                                <th className="p-2.5 font-bold text-[#414751] text-right">Thành tiền</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {selectedBooking.items.map((item, idx) => (
+                                <tr key={idx} className="hover:bg-gray-50">
+                                  <td className="p-2.5">
+                                    <span className="font-bold text-[#141b2b]">{item.serviceName}</span>
+                                    {item.deviceType && (
+                                      <span className="block text-[11px] text-[#717783]">Loại: {item.deviceType}</span>
+                                    )}
+                                  </td>
+                                  <td className="p-2.5 text-center font-bold text-[#141b2b]">{item.quantity}</td>
+                                  <td className="p-2.5 text-right text-gray-700">{Number(item.unitPrice || 0).toLocaleString('vi-VN')} đ</td>
+                                  <td className="p-2.5 text-right font-bold text-[#005396]">{Number(item.subTotalPrice || 0).toLocaleString('vi-VN')} đ</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Order Supplies Section for Customer */}
+                    {selectedBooking.orderSupplies && selectedBooking.orderSupplies.length > 0 && (
+                      <div className="bg-[#fffdf5] p-5 rounded-2xl border border-amber-200 space-y-3 shadow-xs">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <h4 className="font-bold text-amber-900 text-xs flex items-center gap-1.5 uppercase tracking-wider">
+                            <span className="material-symbols-outlined text-[20px] text-amber-700">inventory_2</span>
+                            Vật tư &amp; Linh kiện bổ sung ({selectedBooking.orderSupplies.length})
+                          </h4>
+                          <span className="text-[11px] text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full font-medium">
+                            Đã được kỹ thuật viên xác nhận &amp; cập nhật
+                          </span>
+                        </div>
+
+                        <div className="border border-amber-200/80 rounded-xl overflow-hidden bg-white">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="bg-amber-50 border-b border-amber-200 text-amber-950">
+                                <th className="p-2.5 font-bold w-10 text-center">STT</th>
+                                <th className="p-2.5 font-bold">Vật tư / Linh kiện</th>
+                                <th className="p-2.5 font-bold text-center">Số lượng</th>
+                                <th className="p-2.5 font-bold text-right">Đơn giá</th>
+                                <th className="p-2.5 font-bold text-right">Số tiền</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-amber-100/60">
+                              {selectedBooking.orderSupplies.map((sup, idx) => {
+                                const unitP = sup.unit_price ?? (sup.supply?.unit_price ? Number(sup.supply.unit_price) : 0);
+                                return (
+                                  <tr key={idx} className="hover:bg-amber-50/40">
+                                    <td className="p-2.5 text-center font-bold text-amber-800">{idx + 1}</td>
+                                    <td className="p-2.5">
+                                      <span className="font-bold text-[#141b2b] block">{sup.supply_name || 'Vật tư'}</span>
+                                      <span className="text-[11px] text-gray-500">
+                                        {sup.supply_device ? `Thiết bị: ${sup.supply_device}` : ''}{' '}
+                                        {sup.supply_type ? `| Quy cách: ${sup.supply_type}` : ''}
+                                      </span>
+                                    </td>
+                                    <td className="p-2.5 text-center font-bold text-[#141b2b]">
+                                      {sup.quantity} {sup.supply_unit || 'bộ'}
+                                    </td>
+                                    <td className="p-2.5 text-right text-gray-600">
+                                      {unitP > 0 ? `${unitP.toLocaleString('vi-VN')} đ` : '---'}
+                                    </td>
+                                    <td className="p-2.5 text-right font-bold text-[#005396]">
+                                      {Number(sup.price || 0).toLocaleString('vi-VN')} đ
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-amber-50/80 border-t border-amber-200 text-xs">
+                                <td colSpan={4} className="p-2.5 text-right font-bold text-amber-900">
+                                  Tổng chi phí vật tư:
+                                </td>
+                                <td className="p-2.5 text-right font-bold text-[#005396]">
+                                  {selectedBooking.orderSupplies
+                                    .reduce((sum, s) => sum + Number(s.price || 0), 0)
+                                    .toLocaleString('vi-VN')} đ
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Review section if completed */}
                     {selectedBooking.status === 'completed' && (
                       <div className="pt-4 border-t border-[#c1c7d3]/30">
@@ -659,10 +804,19 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                         <div className="flex items-center gap-1.5">
                           <span className="material-symbols-outlined text-sm text-[#005396]">payments</span>
                           <span>
-                            Giá mong muốn:{' '}
-                            <strong className="text-[#005396]">
-                              {order.totalDesiredPrice.toLocaleString('vi-VN')} đ
-                            </strong>
+                            {order.totalVerifiedPrice > 0 ? (
+                              <>
+                                Giá thẩm định:{' '}
+                                <strong className="text-[#16a34a]">
+                                  {order.totalVerifiedPrice.toLocaleString('vi-VN')} đ
+                                </strong>
+                              </>
+                            ) : (
+                              <>
+                                Giá thu mua:{' '}
+                                <strong className="text-[#005396]">Chờ thẩm định</strong>
+                              </>
+                            )}
                           </span>
                         </div>
                       </div>
@@ -782,16 +936,15 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                             </div>
 
                             <div className="text-xs space-y-1">
-                              <div className="flex justify-between">
-                                <span className="text-[#717783]">Giá bạn mong muốn:</span>
-                                <strong className="text-[#141b2b]">
-                                  {Number(item.desired_price || 0).toLocaleString('vi-VN')} đ
-                                </strong>
-                              </div>
-                              {item.verified_price !== null && (
+                              {item.verified_price !== null && Number(item.verified_price) > 0 ? (
                                 <div className="flex justify-between text-[#16a34a] font-bold">
-                                  <span>Giá thợ thẩm định:</span>
+                                  <span>Giá thẩm định:</span>
                                   <span>{Number(item.verified_price).toLocaleString('vi-VN')} đ</span>
+                                </div>
+                              ) : (
+                                <div className="flex justify-between text-[#005396] font-medium">
+                                  <span>Giá thu mua:</span>
+                                  <span className="italic">Chờ thẩm định</span>
                                 </div>
                               )}
                             </div>
@@ -862,10 +1015,16 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                           </strong>
                         </div>
                         <div>
-                          <span className="text-[#717783] block">Tổng giá mong muốn:</span>
-                          <strong className="text-[#ba1a1a] text-base">
-                            {selectedPurchasing.totalDesiredPrice.toLocaleString('vi-VN')} VNĐ
-                          </strong>
+                          <span className="text-[#717783] block">Tổng giá thu mua:</span>
+                          {selectedPurchasing.totalVerifiedPrice > 0 ? (
+                            <strong className="text-[#16a34a] text-base">
+                              {selectedPurchasing.totalVerifiedPrice.toLocaleString('vi-VN')} VNĐ
+                            </strong>
+                          ) : (
+                            <strong className="text-[#005396] text-xs italic">
+                              Chờ kỹ thuật viên thẩm định & báo giá
+                            </strong>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -43,6 +43,20 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab, userProfile }) => 
           </button>
 
           <button
+            onClick={() => setActiveTab('supplies')}
+            className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all text-center sm:text-left cursor-pointer"
+          >
+            Bảng giá thi công - vật tư
+          </button>
+
+          <button
+            onClick={() => setActiveTab('articles')}
+            className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all text-center sm:text-left cursor-pointer font-bold text-[#005396]"
+          >
+            Góc kiến thức &amp; Mẹo hay
+          </button>
+
+          <button
             onClick={() => setActiveTab('purchasing')}
             className="text-xs text-[#414751] hover:text-[#005396] hover:underline transition-all text-center sm:text-left cursor-pointer"
           >
@@ -62,15 +76,15 @@ export const Footer: React.FC<FooterProps> = ({ setActiveTab, userProfile }) => 
           <h4 className="font-semibold text-sm text-[#141b2b] uppercase tracking-wider mb-1">Liên hệ</h4>
           <div className="flex items-center gap-2 text-xs text-[#414751] justify-center sm:justify-start">
             <span className="material-symbols-outlined text-[18px] text-[#005396]">location_on</span>
-            <span>123 Đường Khí Hậu, TP. Hồ Chí Minh</span>
+            <span>TP. Hồ Chí Minh</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-[#414751] justify-center sm:justify-start">
             <span className="material-symbols-outlined text-[18px] text-[#005396]">mail</span>
-            <span>support@hvacmasters.com</span>
+            <span>dienlanhcongthuongsupport@gmail.com</span>
           </div>
           <div className="flex items-center gap-2 text-xs font-bold text-[#ba1a1a] justify-center sm:justify-start mt-1">
             <span className="material-symbols-outlined text-[18px]">phone_in_talk</span>
-            <span>Hotline: 1900 6868</span>
+            <span>Zalo / Hotline: 0352572821</span>
           </div>
         </div>
       </div>
