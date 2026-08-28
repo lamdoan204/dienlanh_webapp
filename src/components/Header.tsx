@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
       <header className="fixed top-0 w-full z-40 bg-[#f9f9ff]/95 backdrop-blur-md border-b border-[#c1c7d3]/30 shadow-md">
         {/* Top Hotline Bar */}
         <div className="bg-[#003c6e] text-white text-xs py-1.5 px-4 sm:px-6 lg:px-8 border-b border-white/10">
-          <div className="w-full flex justify-between items-center gap-2">
+          <div className="w-full max-w-[1755px] mx-auto flex justify-between items-center gap-2">
             <div className="flex items-center gap-3 text-blue-100">
               <div className="flex items-center gap-1.5 font-medium">
                 <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-pulse"></span>
@@ -54,33 +54,33 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
         </div>
 
         {/* Main Header */}
-        <div className="h-[64px] flex items-center">
-          <div className="flex justify-between items-center px-4 sm:px-6 lg:px-8 w-full gap-4 flex-nowrap">
+        <div className="h-[66px] sm:h-[72px] flex items-center">
+          <div className="flex justify-between items-center px-2.5 sm:px-4 lg:px-5 xl:px-6 w-full max-w-[1755px] mx-auto gap-[clamp(0.5rem,1vw,1.5rem)] flex-nowrap">
             {/* Logo */}
             <button
               onClick={() => setActiveTab('home')}
-              className="hover:opacity-90 transition-opacity text-left cursor-pointer flex-shrink-0"
+              className="hover:opacity-90 transition-opacity text-left cursor-pointer shrink-0 whitespace-nowrap"
             >
-              <Logo size="md" />
+              <Logo size="md" className="w-[212px] h-[68px] items-center shrink-0 whitespace-nowrap" />
             </button>
 
-            {/* Desktop Nav */}
-            <nav className="hidden lg:flex items-center gap-3 xl:gap-6 flex-grow justify-center">
+            {/* Desktop Nav with Fluid Auto-Scaling */}
+            <nav className="hidden lg:flex items-center gap-[clamp(0.15rem,0.45vw,0.8rem)] w-[816px] h-[49px] min-w-0 justify-center">
               {navItems.map((item) => {
                 const isActive = activeTab === item.id;
                 return (
                   <button
                     key={item.id}
                     onClick={() => setActiveTab(item.id)}
-                    className={`px-2 xl:px-3 py-1 rounded font-semibold text-sm xl:text-base transition-all whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    className={`px-[clamp(0.35rem,0.5vw,0.75rem)] py-1.5 rounded-lg font-semibold text-[clamp(13px,0.88vw,15.5px)] transition-all whitespace-nowrap cursor-pointer flex items-center gap-1 shrink-0 ${
                       isActive
-                        ? 'text-[#005396] border-b-2 border-[#005396] font-bold'
+                        ? 'text-[#005396] border-b-2 border-[#005396] font-bold bg-[#005396]/5'
                         : 'text-[#414751] hover:text-[#005396] hover:bg-[#005396]/5'
                     }`}
                   >
                     {item.label}
                     {item.id === 'history' && bookingCount > 0 && (
-                      <span className="ml-1 bg-[#ff8a00] text-white text-xs px-1.5 py-0.5 rounded-full font-bold">
+                      <span className="ml-0.5 bg-[#ff8a00] text-white text-[10.5px] sm:text-[11.5px] px-1.5 py-0.2 rounded-full font-bold leading-tight">
                         {bookingCount}
                       </span>
                     )}
@@ -89,47 +89,47 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
               })}
             </nav>
 
-            {/* Right Header Actions */}
-            <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+            {/* Right Header Actions with Fluid Auto-Scaling */}
+            <div className="flex items-center gap-[clamp(0.35rem,0.6vw,0.75rem)] shrink-0">
               <div
-                className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 bg-[#ff8a00]/10 text-[#914c00] border border-[#ff8a00]/30 rounded-xl font-bold text-xs sm:text-sm shadow-2xs"
+                className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1 bg-[#ff8a00]/10 text-[#914c00] border border-[#ff8a00]/30 rounded-xl font-bold text-xs shadow-2xs"
                 title="Hotline / Zalo 24/7"
               >
-                <span className="material-symbols-outlined text-[18px] text-[#ff8a00] animate-bounce">phone_in_talk</span>
+                <span className="material-symbols-outlined text-[16px] text-[#ff8a00] animate-bounce">phone_in_talk</span>
                 <span>Zalo / Hotline: <strong className="text-[#ba1a1a]">0352572821</strong></span>
               </div>
 
-              <div className="hidden lg:flex items-center gap-2 xl:gap-3">
+              <div className="hidden lg:flex items-center gap-[clamp(0.35rem,0.6vw,0.75rem)]">
                 {/* Admin button ONLY shown when logged-in role is admin */}
                 {userProfile?.role === 'admin' && (
                   <button
                     onClick={() => setActiveTab('admin')}
-                    className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border transition-all cursor-pointer ${
+                    className={`px-2.5 py-1.5 rounded-xl font-bold text-[clamp(12px,0.8vw,14px)] flex items-center gap-1 border transition-all cursor-pointer ${
                       activeTab === 'admin'
                         ? 'bg-[#005396] text-white border-[#005396]'
                         : 'bg-[#ff8a00]/10 text-[#914c00] border-[#ff8a00]/30 hover:bg-[#ff8a00] hover:text-white'
                     }`}
                     title="Giao diện Quản trị viên"
                   >
-                    <span className="material-symbols-outlined text-[18px]">admin_panel_settings</span>
+                    <span className="material-symbols-outlined text-[16px]">admin_panel_settings</span>
                     <span className="hidden xl:inline">Quản trị (Admin)</span>
                   </button>
                 )}
                 <button
                   onClick={() => setActiveTab(userProfile ? 'account' : 'auth')}
                   aria-label={userProfile ? 'Tài khoản cá nhân' : 'Đăng nhập'}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                  className={`w-8.5 h-8.5 xl:w-9.5 xl:h-9.5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                     activeTab === 'account' || activeTab === 'auth'
                       ? 'bg-[#005396] text-white'
                       : 'text-[#414751] hover:bg-[#005396]/5 hover:text-[#005396]'
                   }`}
                   title={userProfile ? 'Tài khoản cá nhân' : 'Đăng nhập'}
                 >
-                  <span className="material-symbols-outlined text-[28px]">account_circle</span>
+                  <span className="material-symbols-outlined text-[22px] xl:text-[25px]">account_circle</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('booking')}
-                  className="px-4 xl:px-5 py-2.5 bg-[#e9edff] text-[#005396] border border-[#005396]/20 rounded-xl font-semibold transition-all hover:bg-[#005396] hover:text-white active:scale-95 shadow-sm whitespace-nowrap min-h-[44px] cursor-pointer text-sm"
+                  className="px-[clamp(0.55rem,0.75vw,1rem)] py-1.5 bg-[#e9edff] text-[#005396] border border-[#005396]/20 rounded-xl font-semibold transition-all hover:bg-[#005396] hover:text-white active:scale-95 shadow-sm whitespace-nowrap min-h-[36px] xl:min-h-[40px] cursor-pointer text-[clamp(13px,0.88vw,15.5px)] flex items-center justify-center"
                 >
                   Đặt dịch vụ
                 </button>
@@ -137,15 +137,15 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
 
               {/* Mobile Hotline Quick Button */}
               <div
-                className="lg:hidden flex items-center justify-center w-10 h-10 bg-[#ba1a1a] text-white rounded-full shadow-md"
+                className="lg:hidden flex items-center justify-center w-11 h-11 bg-[#ba1a1a] text-white rounded-full shadow-md"
                 title="Hotline / Zalo 0352572821"
               >
-                <span className="material-symbols-outlined text-[20px]">call</span>
+                <span className="material-symbols-outlined text-[22px]">call</span>
               </div>
 
               {/* Mobile Hamburger Menu button */}
               <button
-                className="lg:hidden text-[#141b2b] p-2 w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[#dce2f7]/50 active:bg-[#dce2f7] cursor-pointer"
+                className="lg:hidden text-[#141b2b] p-2 w-11 h-11 flex items-center justify-center rounded-lg hover:bg-[#dce2f7]/50 active:bg-[#dce2f7] cursor-pointer"
                 onClick={toggleDrawer}
                 aria-label="Toggle menu"
               >
@@ -167,7 +167,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, booking
           onClick={toggleDrawer}
         />
         <div
-          className={`absolute right-0 top-0 h-full w-72 bg-white shadow-2xl flex flex-col transform transition-transform duration-300 ${
+          className={`absolute right-0 top-0 h-full w-80 max-w-[85vw] bg-white shadow-2xl flex flex-col transform transition-transform duration-300 ${
             isDrawerOpen ? 'translate-x-0' : 'translate-x-full'
           }`}
         >

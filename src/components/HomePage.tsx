@@ -120,7 +120,7 @@ export const HomePage: React.FC<HomePageProps> = ({ setActiveTab, onSelectBookin
   ];
 
   return (
-    <div className="pt-28 lg:pt-32 pb-16">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-16">
       {/* Top Hotline Banner */}
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-4">
         <div className="bg-gradient-to-r from-[#003c6e] via-[#005396] to-[#0f6cbd] text-white rounded-2xl p-4 sm:p-5 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4 border border-white/10">
@@ -149,7 +149,7 @@ export const HomePage: React.FC<HomePageProps> = ({ setActiveTab, onSelectBookin
             className="space-y-6 lg:space-y-8 flex flex-col items-start text-left"
           >
             <h1 className="text-[34px] sm:text-[40px] lg:text-[48px] xl:text-[54px] font-bold text-[#141b2b] leading-[1.2] tracking-tight">
-              Dịch vụ điện lạnh chuyên nghiệp — <span className="text-[#005396]">Tận tâm</span> trong từng lần phục vụ
+              Dịch vụ điện lạnh chuyên nghiệp - <span className="text-[#005396]">Tận tâm</span> trong từng lần phục vụ
             </h1>
 
             <p className="text-[15px] sm:text-[17px] lg:text-[19px] text-[#414751] max-w-xl leading-relaxed">

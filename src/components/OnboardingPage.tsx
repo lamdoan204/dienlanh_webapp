@@ -1,13 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ActiveTab, UserProfile } from '../types';
+import React, { useState } from 'react';
+import { ActiveTab, UserProfile, CustomerAddressData } from '../types';
 import { Logo } from './Logo';
 import { authService } from '../services/authService';
 import { addressService } from '../services/addressService';
-import {
-  getProvincesList,
-  getWardsForProvince,
-  getStreetsForWard,
-} from '../data/vietnamAddressData';
+import { AddressSelector } from './AddressSelector';
 
 interface OnboardingPageProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -36,72 +32,24 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   const [email, setEmail] = useState('');
   const [birthYear, setBirthYear] = useState<string>('');
 
-  // Address fields - initially blank for user to input/select
-  const [province, setProvince] = useState('');
-  const [ward, setWard] = useState('');
-  const [street, setStreet] = useState('');
-  const [houseNumber, setHouseNumber] = useState('');
-  const [note, setNote] = useState('');
-
-  // Auto-suggest dropdown open states
-  const [showProvinceSuggest, setShowProvinceSuggest] = useState(false);
-  const [showWardSuggest, setShowWardSuggest] = useState(false);
-  const [showStreetSuggest, setShowStreetSuggest] = useState(false);
-
-  const provinceRef = useRef<HTMLDivElement>(null);
-  const wardRef = useRef<HTMLDivElement>(null);
-  const streetRef = useRef<HTMLDivElement>(null);
+  // Address fields managed by AddressSelector
+  const [addressData, setAddressData] = useState<CustomerAddressData>({
+    province_code: '79',
+    province_name: 'Thành phố Hồ Chí Minh',
+    ward_code: '',
+    ward_name: '',
+    house_number: '',
+    street: '',
+    full_address: '',
+    latitude: null,
+    longitude: null,
+    note: '',
+  });
+  const [addressNote, setAddressNote] = useState<string>('');
 
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-
-  // Filtered lists for suggestions
-  const provincesList = getProvincesList().filter((p) =>
-    p.toLowerCase().includes(province.toLowerCase())
-  );
-  const wardsList = getWardsForProvince(province).filter((w) =>
-    w.toLowerCase().includes(ward.toLowerCase())
-  );
-  const streetsList = getStreetsForWard(province, ward).filter((s) =>
-    s.toLowerCase().includes(street.toLowerCase())
-  );
-
-  // Calculated full address string
-  const fullAddress = [
-    houseNumber.trim(),
-    street.trim(),
-    ward.trim(),
-    province.trim(),
-  ]
-    .filter(Boolean)
-    .join(', ');
-
-  // Close dropdowns on outside click
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        provinceRef.current &&
-        !provinceRef.current.contains(event.target as Node)
-      ) {
-        setShowProvinceSuggest(false);
-      }
-      if (
-        wardRef.current &&
-        !wardRef.current.contains(event.target as Node)
-      ) {
-        setShowWardSuggest(false);
-      }
-      if (
-        streetRef.current &&
-        !streetRef.current.contains(event.target as Node)
-      ) {
-        setShowStreetSuggest(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const handleComplete = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,7 +66,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
       return;
     }
 
-    if (!province.trim() || !ward.trim()) {
+    if (!addressData.province_name?.trim() || !addressData.ward_name?.trim()) {
       setErrorMessage('Vui lòng chọn Tỉnh/Thành phố và Phường/Xã.');
       return;
     }
@@ -129,15 +77,29 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
       const activeUser = userProfile || authService.getStoredProfile();
       const userId = activeUser?.id || Date.now();
 
+      // Calculated full address string
+      const computedFullAddress =
+        addressData.full_address ||
+        [
+          addressData.house_number?.trim(),
+          addressData.street?.trim(),
+          addressData.ward_name?.trim(),
+          addressData.province_name?.trim(),
+        ]
+          .filter(Boolean)
+          .join(', ');
+
       // 1. Add Address Record to public.address database table
       const addressRes = await addressService.addAddress({
         user_id: userId,
-        province: province.trim(),
-        ward: ward.trim(),
-        street: street.trim() || null,
-        house_number: houseNumber.trim() || null,
-        full_address: fullAddress,
-        note: note.trim() || null,
+        province: addressData.province_name.trim(),
+        ward: addressData.ward_name.trim(),
+        street: addressData.street?.trim() || null,
+        house_number: addressData.house_number?.trim() || null,
+        full_address: computedFullAddress,
+        latitude: addressData.latitude ?? null,
+        longitude: addressData.longitude ?? null,
+        note: addressNote.trim() || addressData.note?.trim() || null,
       });
 
       if (!addressRes.success) {
@@ -181,7 +143,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   };
 
   return (
-    <div className="pt-24 lg:pt-28 pb-16 min-h-screen bg-[#f9f9ff] text-[#141b2b] flex flex-col items-center justify-center px-4 sm:px-6">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-16 min-h-screen bg-[#f9f9ff] text-[#141b2b] flex flex-col items-center justify-center px-4 sm:px-6">
       <div className="w-full max-w-2xl bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-[#c1c7d3]/30 my-4">
         {/* Header & Branding */}
         <div className="flex flex-col items-center justify-center text-center mb-6">
@@ -338,196 +300,24 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
             </div>
           </div>
 
-          {/* Address Section */}
+          {/* Address Section with AddressSelector */}
           <div className="pt-4 pb-1 border-t border-[#c1c7d3]/30 mt-4">
-            <h3 className="text-sm font-bold text-[#141b2b] flex items-center gap-2">
+            <h3 className="text-sm font-bold text-[#141b2b] flex items-center gap-2 mb-3">
               <span className="material-symbols-outlined text-[#005396]">location_on</span>
-              <span>Địa chỉ dịch vụ mặc định (Lưu vào database)</span>
+              <span>Địa chỉ dịch vụ mặc định (Gợi ý thông minh &amp; Tự động lưu)</span>
             </h3>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Province Auto-Suggest */}
-            <div className="relative" ref={provinceRef}>
-              <label className="block text-xs font-bold text-[#141b2b] mb-1" htmlFor="province">
-                Tỉnh / Thành phố <span className="text-[#ba1a1a]">*</span>
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-[#717783]">
-                  <span className="material-symbols-outlined text-[20px]">location_on</span>
-                </span>
-                <input
-                  id="province"
-                  type="text"
-                  required
-                  value={province}
-                  onFocus={() => setShowProvinceSuggest(true)}
-                  onChange={(e) => {
-                    setProvince(e.target.value);
-                    setShowProvinceSuggest(true);
-                  }}
-                  placeholder="Ví dụ: TP. Hồ Chí Minh"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#c1c7d3] bg-[#f9f9ff] text-sm focus:outline-none focus:border-[#005396] focus:ring-1 focus:ring-[#005396]/30 transition-all text-[#141b2b]"
-                />
-              </div>
-
-              {/* Suggestions dropdown */}
-              {showProvinceSuggest && provincesList.length > 0 && (
-                <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-[#c1c7d3] rounded-xl shadow-lg max-h-48 overflow-y-auto text-sm divide-y divide-[#c1c7d3]/20">
-                  {provincesList.map((item, idx) => (
-                    <li key={idx}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProvince(item);
-                          setWard('');
-                          setStreet('');
-                          setShowProvinceSuggest(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-[#e9edff] hover:text-[#005396] text-[#141b2b] transition-colors cursor-pointer"
-                      >
-                        {item}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+            <div className="bg-[#f8f9ff] p-4 rounded-xl border border-[#c1c7d3]/40">
+              <AddressSelector
+                value={addressData}
+                onChange={(updated) => setAddressData(updated)}
+                showNoteField={true}
+                noteValue={addressNote}
+                onNoteChange={(txt) => setAddressNote(txt)}
+                required={true}
+                idPrefix="onboarding_addr"
+              />
             </div>
-
-            {/* Ward Auto-Suggest */}
-            <div className="relative" ref={wardRef}>
-              <label className="block text-xs font-bold text-[#141b2b] mb-1" htmlFor="ward">
-                Phường / Xã <span className="text-[#ba1a1a]">*</span>
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-[#717783]">
-                  <span className="material-symbols-outlined text-[20px]">home_work</span>
-                </span>
-                <input
-                  id="ward"
-                  type="text"
-                  required
-                  value={ward}
-                  onFocus={() => setShowWardSuggest(true)}
-                  onChange={(e) => {
-                    setWard(e.target.value);
-                    setShowWardSuggest(true);
-                  }}
-                  placeholder="Ví dụ: Phường Bến Nghé (Quận 1)"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#c1c7d3] bg-[#f9f9ff] text-sm focus:outline-none focus:border-[#005396] focus:ring-1 focus:ring-[#005396]/30 transition-all text-[#141b2b]"
-                />
-              </div>
-
-              {/* Suggestions dropdown */}
-              {showWardSuggest && wardsList.length > 0 && (
-                <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-[#c1c7d3] rounded-xl shadow-lg max-h-48 overflow-y-auto text-sm divide-y divide-[#c1c7d3]/20">
-                  {wardsList.map((item, idx) => (
-                    <li key={idx}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setWard(item);
-                          setStreet('');
-                          setShowWardSuggest(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-[#e9edff] hover:text-[#005396] text-[#141b2b] transition-colors cursor-pointer"
-                      >
-                        {item}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Street Auto-Suggest */}
-            <div className="relative" ref={streetRef}>
-              <label className="block text-xs font-bold text-[#141b2b] mb-1" htmlFor="street">
-                Tên đường
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-[#717783]">
-                  <span className="material-symbols-outlined text-[20px]">signpost</span>
-                </span>
-                <input
-                  id="street"
-                  type="text"
-                  value={street}
-                  onFocus={() => setShowStreetSuggest(true)}
-                  onChange={(e) => {
-                    setStreet(e.target.value);
-                    setShowStreetSuggest(true);
-                  }}
-                  placeholder="Ví dụ: Đường Nguyễn Huệ"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#c1c7d3] bg-[#f9f9ff] text-sm focus:outline-none focus:border-[#005396] focus:ring-1 focus:ring-[#005396]/30 transition-all text-[#141b2b]"
-                />
-              </div>
-
-              {/* Suggestions dropdown */}
-              {showStreetSuggest && streetsList.length > 0 && (
-                <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-[#c1c7d3] rounded-xl shadow-lg max-h-48 overflow-y-auto text-sm divide-y divide-[#c1c7d3]/20">
-                  {streetsList.map((item, idx) => (
-                    <li key={idx}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStreet(item);
-                          setShowStreetSuggest(false);
-                        }}
-                        className="w-full text-left px-4 py-2 hover:bg-[#e9edff] hover:text-[#005396] text-[#141b2b] transition-colors cursor-pointer"
-                      >
-                        {item}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* House Number */}
-            <div>
-              <label className="block text-xs font-bold text-[#141b2b] mb-1" htmlFor="houseNumber">
-                Số nhà
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-[#717783]">
-                  <span className="material-symbols-outlined text-[20px]">home</span>
-                </span>
-                <input
-                  id="houseNumber"
-                  type="text"
-                  value={houseNumber}
-                  onChange={(e) => setHouseNumber(e.target.value)}
-                  placeholder="Ví dụ: 123A"
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#c1c7d3] bg-[#f9f9ff] text-sm focus:outline-none focus:border-[#005396] focus:ring-1 focus:ring-[#005396]/30 transition-all text-[#141b2b]"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Full Address Preview */}
-          <div>
-            <label className="block text-xs font-bold text-[#414751] mb-1">
-              Địa chỉ đầy đủ (Tự động đồng bộ full_address)
-            </label>
-            <div className="w-full bg-[#f1f3ff] border border-[#c1c7d3]/50 rounded-xl px-4 py-3 text-sm text-[#005396] font-semibold min-h-[44px]">
-              {fullAddress || <span className="text-[#a0a5b1] font-normal">Chưa nhập đủ thông tin địa chỉ</span>}
-            </div>
-          </div>
-
-          {/* Note */}
-          <div>
-            <label className="block text-xs font-bold text-[#141b2b] mb-1" htmlFor="note">
-              Ghi chú
-            </label>
-            <textarea
-              id="note"
-              rows={3}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Hướng dẫn giao hàng hoặc dịch vụ thêm..."
-              className="w-full px-4 py-2.5 rounded-xl border border-[#c1c7d3] bg-[#f9f9ff] text-sm focus:outline-none focus:border-[#005396] focus:ring-1 focus:ring-[#005396]/30 transition-all text-[#141b2b]"
-            />
           </div>
 
           {/* Submit Button */}

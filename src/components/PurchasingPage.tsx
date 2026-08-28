@@ -5,11 +5,12 @@ import {
   AddressRecord,
   PurchasingItemInput,
   PurchasingOrderInput,
+  CustomerAddressData,
 } from '../types';
 import { addressService } from '../services/addressService';
 import { timeSlotService, TimeSlotRecord } from '../services/timeSlotService';
 import { purchasingService } from '../services/purchasingService';
-import { VIETNAM_ADDRESS_DATA } from '../data/vietnamAddressData';
+import { AddressSelector } from './AddressSelector';
 
 interface PurchasingPageProps {
   userProfile?: UserProfile | null;
@@ -41,10 +42,18 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
 
   // Address fields
-  const [province, setProvince] = useState<string>('TP. Hồ Chí Minh');
-  const [ward, setWard] = useState<string>('');
-  const [street, setStreet] = useState<string>('');
-  const [houseNumber, setHouseNumber] = useState<string>('');
+  const [addressData, setAddressData] = useState<CustomerAddressData>({
+    province_code: '79',
+    province_name: 'Thành phố Hồ Chí Minh',
+    ward_code: '',
+    ward_name: '',
+    house_number: '',
+    street: '',
+    full_address: '',
+    latitude: null,
+    longitude: null,
+    note: '',
+  });
   const [addressNote, setAddressNote] = useState<string>('');
 
   // ----------------------------------------------------
@@ -136,34 +145,6 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
     };
   }, []);
 
-  // ----------------------------------------------------
-  // Address Data helpers
-  // ----------------------------------------------------
-  const currentProvinceData = useMemo(() => {
-    return VIETNAM_ADDRESS_DATA.find((p) => p.name === province) || VIETNAM_ADDRESS_DATA[0];
-  }, [province]);
-
-  const wardsList = useMemo(() => {
-    return currentProvinceData ? currentProvinceData.wards : [];
-  }, [currentProvinceData]);
-
-  const currentWardData = useMemo(() => {
-    return wardsList.find((w) => w.name === ward) || wardsList[0];
-  }, [wardsList, ward]);
-
-  const streetsList = useMemo(() => {
-    return currentWardData ? currentWardData.streets : [];
-  }, [currentWardData]);
-
-  // Set default ward & street when province changes
-  useEffect(() => {
-    if (wardsList.length > 0) {
-      if (!wardsList.some((w) => w.name === ward)) {
-        setWard(wardsList[0].name);
-      }
-    }
-  }, [province, wardsList, ward]);
-
   // Auto-fill logged in user
   useEffect(() => {
     if (userProfile) {
@@ -209,9 +190,14 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
         );
       }
     }
-    const parts = [houseNumber.trim(), street.trim(), ward.trim(), province.trim()].filter(Boolean);
-    return parts.join(', ') || 'Chưa cập nhật địa chỉ';
-  }, [addressMode, userAddresses, selectedAddressId, houseNumber, street, ward, province]);
+    return (
+      addressData.full_address ||
+      [addressData.house_number, addressData.street, addressData.ward_name, addressData.province_name]
+        .filter(Boolean)
+        .join(', ') ||
+      'Chưa cập nhật địa chỉ'
+    );
+  }, [addressMode, userAddresses, selectedAddressId, addressData]);
 
   // Selected items list
   const selectedItems = useMemo(() => {
@@ -276,20 +262,16 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
         return;
       }
     } else {
-      if (!province.trim()) {
+      if (!addressData.province_name) {
         setErrorMessage('Vui lòng chọn Tỉnh / Thành phố.');
         return;
       }
-      if (!ward.trim()) {
+      if (!addressData.ward_name) {
         setErrorMessage('Vui lòng chọn Phường / Xã.');
         return;
       }
-      if (!street.trim()) {
-        setErrorMessage('Vui lòng nhập tên Đường / Tuyến phố.');
-        return;
-      }
-      if (!houseNumber.trim()) {
-        setErrorMessage('Vui lòng nhập Số nhà, ngõ/ngách hoặc tòa nhà.');
+      if (!addressData.full_address && !addressData.street && !addressData.house_number) {
+        setErrorMessage('Vui lòng nhập Địa chỉ cụ thể (Số nhà / Đường).');
         return;
       }
     }
@@ -317,10 +299,10 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
       fullName: fullName.trim(),
       phone: phone.trim(),
       email: email.trim(),
-      province: addressMode === 'saved' ? '' : province,
-      ward: addressMode === 'saved' ? '' : ward,
-      street: addressMode === 'saved' ? '' : street,
-      house_number: addressMode === 'saved' ? '' : houseNumber,
+      province: addressMode === 'saved' ? '' : addressData.province_name,
+      ward: addressMode === 'saved' ? '' : addressData.ward_name,
+      street: addressMode === 'saved' ? '' : addressData.street,
+      house_number: addressMode === 'saved' ? '' : addressData.house_number,
       full_address: computedFullAddress,
       address_note: addressNote.trim(),
       time_slot_id: Number(selectedTimeSlot.id),
@@ -340,7 +322,7 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
   };
 
   return (
-    <div className="pt-24 lg:pt-28 pb-20 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-20 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Header Banner */}
       <div className="text-center mb-8 sm:mb-10">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#005396]/10 text-[#005396] font-bold text-xs sm:text-sm mb-3">
@@ -537,103 +519,17 @@ export const PurchasingPage: React.FC<PurchasingPageProps> = ({
               })}
             </div>
           ) : (
-            /* New / Guest Address Inputs with Full Hierarchy */
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* 1. Province */}
-                <div>
-                  <label className="block text-xs font-bold text-[#414751] mb-1.5">
-                    Tỉnh / Thành phố <span className="text-[#ba1a1a]">*</span>
-                  </label>
-                  <select
-                    value={province}
-                    onChange={(e) => setProvince(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl text-sm font-medium focus:bg-white focus:border-[#005396] outline-hidden transition-all"
-                  >
-                    {VIETNAM_ADDRESS_DATA.map((p) => (
-                      <option key={p.name} value={p.name}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 2. Ward */}
-                <div>
-                  <label className="block text-xs font-bold text-[#414751] mb-1.5">
-                    Phường / Xã / Quận <span className="text-[#ba1a1a]">*</span>
-                  </label>
-                  <select
-                    value={ward}
-                    onChange={(e) => setWard(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl text-sm font-medium focus:bg-white focus:border-[#005396] outline-hidden transition-all"
-                  >
-                    {wardsList.map((w) => (
-                      <option key={w.name} value={w.name}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 3. Street */}
-                <div>
-                  <label className="block text-xs font-bold text-[#414751] mb-1.5">
-                    Đường / Phố <span className="text-[#ba1a1a]">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    list="purchasing-street-suggestions"
-                    placeholder="Tên đường hoặc chọn gợi ý"
-                    value={street}
-                    onChange={(e) => setStreet(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl text-sm font-medium focus:bg-white focus:border-[#005396] outline-hidden transition-all"
-                  />
-                  <datalist id="purchasing-street-suggestions">
-                    {streetsList.map((s, idx) => (
-                      <option key={idx} value={s} />
-                    ))}
-                  </datalist>
-                </div>
-
-                {/* 4. House Number */}
-                <div>
-                  <label className="block text-xs font-bold text-[#414751] mb-1.5">
-                    Số nhà / Căn hộ <span className="text-[#ba1a1a]">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Số nhà, ngõ, tòa nhà..."
-                    value={houseNumber}
-                    onChange={(e) => setHouseNumber(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl text-sm font-medium focus:bg-white focus:border-[#005396] outline-hidden transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Address Note */}
-              <div>
-                <label className="block text-xs font-bold text-[#414751] mb-1.5">
-                  Ghi chú địa chỉ / Chỉ dẫn đường đi{' '}
-                  <span className="text-[#717783] font-normal">(VD: Lầu 2, thang máy, gần ngã tư...)</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ghi chú chi tiết cho thợ đến thu mua..."
-                  value={addressNote}
-                  onChange={(e) => setAddressNote(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#f9f9ff] border border-[#c1c7d3] rounded-xl text-sm font-medium focus:bg-white focus:border-[#005396] outline-hidden transition-all"
-                />
-              </div>
-
-              <div className="p-3 bg-[#f1f3ff] rounded-xl text-xs text-[#005396] flex items-center gap-2">
-                <span className="material-symbols-outlined text-sm">location_on</span>
-                <span>
-                  <strong>Địa chỉ đầy đủ:</strong> {computedFullAddress}
-                </span>
-              </div>
+            /* New / Guest Address Inputs with VIETMAP Autocomplete */
+            <div className="bg-[#f8f9ff] p-4 rounded-xl border border-[#c1c7d3]/40">
+              <AddressSelector
+                value={addressData}
+                onChange={(updated) => setAddressData(updated)}
+                showNoteField={true}
+                noteValue={addressNote}
+                onNoteChange={(txt) => setAddressNote(txt)}
+                required={true}
+                idPrefix="purchasing_addr"
+              />
             </div>
           )}
         </div>

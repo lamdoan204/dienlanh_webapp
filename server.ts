@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
+import { addressRouter } from "./server/addressRoutes";
 
 dotenv.config({ override: true });
 
@@ -11,6 +12,9 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Mount Address & VIETMAP Autocomplete API Routes
+  app.use("/api/address", addressRouter);
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {

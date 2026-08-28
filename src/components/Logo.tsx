@@ -80,11 +80,11 @@ export const Logo: React.FC<LogoProps> = ({
   const starPolyString = starPoints.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ');
 
   return (
-    <div className={`flex items-center gap-2.5 ${className}`}>
+    <div className={`flex items-center gap-2.5 shrink-0 whitespace-nowrap ${className}`}>
       {/* SVG Icon matching the exact logo in image */}
       <svg
         viewBox="0 0 120 120"
-        className={`${currentSize.icon} flex-shrink-0`}
+        className={`${currentSize.icon} shrink-0`}
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
@@ -141,11 +141,11 @@ export const Logo: React.FC<LogoProps> = ({
 
       {/* Brand Name Text - exact 2-line layout from image */}
       {!iconOnly && (
-        <div className={`flex flex-col leading-tight select-none ${textColor}`}>
-          <span className={`font-normal ${currentSize.text1} text-[#005396]`}>
+        <div className={`flex flex-col leading-tight select-none shrink-0 whitespace-nowrap ${textColor}`}>
+          <span className={`font-normal ${currentSize.text1} text-[#005396] whitespace-nowrap`}>
             Điện lạnh
           </span>
-          <span className={`font-bold ${currentSize.text2} text-[#005396]`}>
+          <span className={`font-bold ${currentSize.text2} text-[#005396] whitespace-nowrap`}>
             Công Thương
           </span>
         </div>

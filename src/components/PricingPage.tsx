@@ -108,7 +108,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ setActiveTab, onSelect
   };
 
   return (
-    <div className="pt-16 lg:pt-20 pb-16 bg-[#f8f9ff] min-h-screen">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-16 bg-[#f8f9ff] min-h-screen">
       {/* Ultra Compact Header Banner */}
       <section className="relative py-3 lg:py-4 bg-white border-b border-[#c1c7d3]/30 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">

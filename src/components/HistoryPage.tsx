@@ -241,7 +241,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 
   if (!userProfile) {
     return (
-      <div className="pt-24 lg:pt-28 pb-16 max-w-xl mx-auto px-4 sm:px-6">
+      <div className="pt-36 sm:pt-38 lg:pt-36 pb-16 max-w-xl mx-auto px-4 sm:px-6">
         <div className="bg-white rounded-2xl border border-[#c1c7d3]/40 shadow-sm p-8 text-center">
           <div className="w-16 h-16 bg-[#e9edff] text-[#005396] rounded-2xl flex items-center justify-center mx-auto mb-4 border border-[#005396]/20">
             <span className="material-symbols-outlined text-3xl">history_toggle_off</span>
@@ -273,7 +273,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   }
 
   return (
-    <div className="pt-24 lg:pt-28 pb-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Title Header */}
       <div className="mb-6 border-b border-[#c1c7d3]/30 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

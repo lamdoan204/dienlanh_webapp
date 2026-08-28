@@ -99,7 +99,7 @@ export const SuppliesPricingPage: React.FC<SuppliesPricingPageProps> = ({ setAct
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] pt-20 sm:pt-24 pb-20 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#f8fafc] pt-36 sm:pt-38 lg:pt-36 pb-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-4 sm:space-y-5">
         {/* Ultra Compact Top Header Banner */}
         <div className="relative overflow-hidden bg-gradient-to-r from-[#003c6e] via-[#005396] to-[#0f6cbd] rounded-2xl p-4 sm:p-5 text-white shadow-md border border-white/10">

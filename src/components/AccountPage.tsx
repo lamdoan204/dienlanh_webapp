@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveTab, UserProfile, AddressRecord } from '../types';
+import { ActiveTab, UserProfile, AddressRecord, CustomerAddressData } from '../types';
 import { authService } from '../services/authService';
 import { addressService } from '../services/addressService';
+import { AddressSelector } from './AddressSelector';
 
 interface AccountPageProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -48,14 +49,19 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   // Address form modal / inline state
   const [isAddressFormOpen, setIsAddressFormOpen] = useState(false);
   const [editingAddressId, setEditingAddressId] = useState<number | null>(null);
-  const [addressForm, setAddressForm] = useState({
-    province: '',
-    ward: '',
+  const [addressData, setAddressData] = useState<CustomerAddressData>({
+    province_code: '79',
+    province_name: 'Thành phố Hồ Chí Minh',
+    ward_code: '',
+    ward_name: '',
+    house_number: '',
     street: '',
-    houseNumber: '',
-    fullAddress: '',
+    full_address: '',
+    latitude: null,
+    longitude: null,
     note: '',
   });
+  const [addressNote, setAddressNote] = useState<string>('');
 
   // Fetch addresses on mount or when user Profile changes
   useEffect(() => {
@@ -79,26 +85,6 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
     return () => { isMounted = false; };
   }, [userProfile?.id]);
-
-  // Handle live calculation of fullAddress when component address sub-fields change
-  const handleAddressSubFieldChange = (field: 'province' | 'ward' | 'street' | 'houseNumber', value: string) => {
-    setAddressForm((prev) => {
-      const updated = { ...prev, [field]: value };
-      
-      // Auto build full address string
-      const parts = [
-        updated.houseNumber.trim() ? `Số ${updated.houseNumber.trim()}` : '',
-        updated.street.trim(),
-        updated.ward.trim(),
-        updated.province.trim(),
-      ].filter(Boolean);
-
-      return {
-        ...updated,
-        fullAddress: parts.join(', '),
-      };
-    });
-  };
 
   // Save personal information
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -132,28 +118,38 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   // Open form for adding new address
   const handleOpenAddAddress = () => {
     setEditingAddressId(null);
-    setAddressForm({
-      province: 'TP. Hồ Chí Minh',
-      ward: '',
+    setAddressData({
+      province_code: '79',
+      province_name: 'Thành phố Hồ Chí Minh',
+      ward_code: '',
+      ward_name: '',
+      house_number: '',
       street: '',
-      houseNumber: '',
-      fullAddress: '',
+      full_address: '',
+      latitude: null,
+      longitude: null,
       note: '',
     });
+    setAddressNote('');
     setIsAddressFormOpen(true);
   };
 
   // Open form for editing existing address
   const handleOpenEditAddress = (addr: AddressRecord) => {
     setEditingAddressId(addr.id || null);
-    setAddressForm({
-      province: addr.province || '',
-      ward: addr.ward || '',
+    setAddressData({
+      province_code: addr.province_code || '',
+      province_name: addr.province_name || addr.province || '',
+      ward_code: addr.ward_code || '',
+      ward_name: addr.ward_name || addr.ward || '',
+      house_number: addr.house_number || '',
       street: addr.street || '',
-      houseNumber: addr.house_number || '',
-      fullAddress: addr.full_address || '',
+      full_address: addr.full_address || '',
+      latitude: addr.latitude || null,
+      longitude: addr.longitude || null,
       note: addr.note || '',
     });
+    setAddressNote(addr.note || '');
     setIsAddressFormOpen(true);
   };
 
@@ -173,13 +169,30 @@ export const AccountPage: React.FC<AccountPageProps> = ({
     e.preventDefault();
     const userId = userProfile?.id || 1;
 
+    if (!addressData.province_name || !addressData.ward_name) {
+      alert('Vui lòng chọn Tỉnh/Thành phố và Phường/Xã.');
+      return;
+    }
+
+    const full =
+      addressData.full_address ||
+      [addressData.house_number, addressData.street, addressData.ward_name, addressData.province_name]
+        .filter(Boolean)
+        .join(', ');
+
     const payload = {
-      province: addressForm.province.trim(),
-      ward: addressForm.ward.trim(),
-      street: addressForm.street.trim() || null,
-      house_number: addressForm.houseNumber.trim() || null,
-      full_address: addressForm.fullAddress.trim() || `${addressForm.houseNumber} ${addressForm.street}, ${addressForm.ward}, ${addressForm.province}`,
-      note: addressForm.note.trim() || null,
+      province: addressData.province_name,
+      ward: addressData.ward_name,
+      province_code: addressData.province_code || null,
+      province_name: addressData.province_name || null,
+      ward_code: addressData.ward_code || null,
+      ward_name: addressData.ward_name || null,
+      street: addressData.street || null,
+      house_number: addressData.house_number || null,
+      full_address: full,
+      latitude: addressData.latitude || null,
+      longitude: addressData.longitude || null,
+      note: addressNote.trim() || null,
     };
 
     if (editingAddressId) {
@@ -224,7 +237,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
 
   if (!userProfile) {
     return (
-      <div className="pt-24 lg:pt-28 pb-16 max-w-xl mx-auto px-4 sm:px-6">
+      <div className="pt-36 sm:pt-38 lg:pt-36 pb-16 max-w-xl mx-auto px-4 sm:px-6">
         <div className="bg-white rounded-2xl border border-[#c1c7d3]/40 shadow-sm p-8 text-center">
           <div className="w-16 h-16 bg-[#e9edff] text-[#005396] rounded-2xl flex items-center justify-center mx-auto mb-4 border border-[#005396]/20">
             <span className="material-symbols-outlined text-3xl">manage_accounts</span>
@@ -256,7 +269,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
   }
 
   return (
-    <div className="pt-20 lg:pt-24 pb-16 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-16 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Title Header */}
       <div className="mb-6 border-b border-[#c1c7d3]/30 pb-4 flex justify-between items-center">
         <div>
@@ -462,7 +475,7 @@ export const AccountPage: React.FC<AccountPageProps> = ({
           </button>
         </div>
 
-        {/* Address Add / Edit Form Modal / Inline Card */}
+        {/* Address Add / Edit Form Modal / Inline Card with VIETMAP Autocomplete */}
         {isAddressFormOpen && (
           <form
             onSubmit={handleSaveAddress}
@@ -482,93 +495,24 @@ export const AccountPage: React.FC<AccountPageProps> = ({
               </button>
             </div>
 
-            {/* Address sub-fields grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div>
-                <label className="text-[11px] font-bold text-[#414751] block mb-1">Tỉnh / Thành phố *</label>
-                <input
-                  type="text"
-                  required
-                  value={addressForm.province}
-                  onChange={(e) => handleAddressSubFieldChange('province', e.target.value)}
-                  placeholder="TP. Hồ Chí Minh"
-                  className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-[#414751] block mb-1">Phường / Xã *</label>
-                <input
-                  type="text"
-                  required
-                  value={addressForm.ward}
-                  onChange={(e) => handleAddressSubFieldChange('ward', e.target.value)}
-                  placeholder="Phường Bến Nghé"
-                  className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-[#414751] block mb-1">Tên đường</label>
-                <input
-                  type="text"
-                  value={addressForm.street}
-                  onChange={(e) => handleAddressSubFieldChange('street', e.target.value)}
-                  placeholder="Đường Lê Duẩn"
-                  className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-[#414751] block mb-1">Số nhà</label>
-                <input
-                  type="text"
-                  value={addressForm.houseNumber}
-                  onChange={(e) => handleAddressSubFieldChange('houseNumber', e.target.value)}
-                  placeholder="123A"
-                  className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
-                />
-              </div>
-            </div>
-
-            {/* Auto Updated Full Address */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[11px] font-bold text-[#005396] flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
-                  <span>Địa chỉ đầy đủ (Tự động cập nhật) *</span>
-                </label>
-                <span className="text-[10px] text-[#717783]">Có thể tùy chỉnh lại</span>
-              </div>
-              <input
-                type="text"
-                required
-                value={addressForm.fullAddress}
-                onChange={(e) => setAddressForm({ ...addressForm, fullAddress: e.target.value })}
-                placeholder="Số 123A Đường Lê Duẩn, Phường Bến Nghé, TP. Hồ Chí Minh"
-                className="w-full bg-white border border-[#005396]/40 rounded-xl px-3.5 py-2.5 text-xs font-bold text-[#141b2b] outline-none focus:border-[#005396] shadow-2xs"
-              />
-            </div>
-
-            {/* Address Note */}
-            <div>
-              <label className="text-[11px] font-bold text-[#414751] block mb-1">Ghi chú địa chỉ (nếu có)</label>
-              <input
-                type="text"
-                value={addressForm.note}
-                onChange={(e) => setAddressForm({ ...addressForm, note: e.target.value })}
-                placeholder="Ví dụ: Căn hộ 502, Tòa nhà Saigon Tower, giao tận tay..."
-                className="w-full bg-white border border-[#c1c7d3] rounded-xl px-3 py-2 text-xs font-medium outline-none focus:border-[#005396]"
-              />
-            </div>
+            {/* AddressSelector Component */}
+            <AddressSelector
+              value={addressData}
+              onChange={(updated) => setAddressData(updated)}
+              showNoteField={true}
+              noteValue={addressNote}
+              onNoteChange={(txt) => setAddressNote(txt)}
+              required={true}
+              idPrefix="account_addr"
+            />
 
             {/* Submit Action buttons */}
-            <div className="flex items-center gap-2 pt-1">
+            <div className="flex items-center gap-2 pt-2 border-t border-gray-200/60">
               <button
                 type="submit"
                 className="px-4 py-2 bg-[#005396] hover:bg-[#0f6cbd] text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
               >
-                Lưu địa chỉ
+                {editingAddressId ? 'Cập nhật địa chỉ' : 'Lưu địa chỉ'}
               </button>
               <button
                 type="button"

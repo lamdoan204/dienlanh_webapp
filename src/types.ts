@@ -180,15 +180,58 @@ export interface BookingFormData {
   notes?: string;
 }
 
+// Administrative & VIETMAP Autocomplete Types
+export interface AdministrativeProvince {
+  code: string;
+  name: string;
+}
+
+export interface AdministrativeWard {
+  code: string;
+  name: string;
+  province_code: string;
+}
+
+export interface AddressSuggestionItem {
+  id: string;
+  display: string;
+  address: string;
+  house_number: string | null;
+  street: string | null;
+  ward: string | null;
+  province: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface CustomerAddressData {
+  province_code: string;
+  province_name: string;
+  ward_code: string;
+  ward_name: string;
+  house_number: string;
+  street: string;
+  full_address: string;
+  latitude: number | null;
+  longitude: number | null;
+  note?: string;
+}
+
 // Supabase relational schema types
 export interface AddressRecord {
   id?: number;
   user_id: number;
   province: string;
   ward: string;
+  province_code?: string | null;
+  province_name?: string | null;
+  ward_code?: string | null;
+  ward_name?: string | null;
   street?: string | null;
   house_number?: string | null;
   full_address: string;
+  latitude?: number | null;
+  longitude?: number | null;
   note?: string | null;
   created_at?: string;
   updated_at?: string;

@@ -9,11 +9,13 @@ import {
   AddressRecord,
   AdminService,
   SelectedServiceItem,
+  CustomerAddressData,
 } from '../types';
 import { addressService } from '../services/addressService';
 import { adminService } from '../services/adminService';
 import { timeSlotService, TimeSlotRecord } from '../services/timeSlotService';
 import { notificationService } from '../services/notificationService';
+import { AddressSelector } from './AddressSelector';
 
 interface BookingPageProps {
   initialPreset?: AdminService | { device: DeviceType; service: ServicePackageType };
@@ -43,11 +45,19 @@ export const BookingPage: React.FC<BookingPageProps> = ({
   const [userAddresses, setUserAddresses] = useState<AddressRecord[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
 
-  // Address fields for new address / guest address
-  const [province, setProvince] = useState<string>('');
-  const [ward, setWard] = useState<string>('');
-  const [street, setStreet] = useState<string>('');
-  const [houseNumber, setHouseNumber] = useState<string>('');
+  // Address data from AddressSelector
+  const [addressData, setAddressData] = useState<CustomerAddressData>({
+    province_code: '79',
+    province_name: 'Thành phố Hồ Chí Minh',
+    ward_code: '',
+    ward_name: '',
+    house_number: '',
+    street: '',
+    full_address: '',
+    latitude: null,
+    longitude: null,
+    note: '',
+  });
   const [addressNote, setAddressNote] = useState<string>('');
   const [saveAddressToAccount, setSaveAddressToAccount] = useState<boolean>(true);
 
@@ -303,9 +313,8 @@ export const BookingPage: React.FC<BookingPageProps> = ({
       return found ? found.full_address : '';
     }
 
-    const parts = [houseNumber, street, ward, province].map((p) => p.trim()).filter(Boolean);
-    return parts.join(', ');
-  }, [addressMode, selectedAddressId, userAddresses, houseNumber, street, ward, province]);
+    return addressData.full_address || [addressData.house_number, addressData.street, addressData.ward_name, addressData.province_name].filter(Boolean).join(', ');
+  }, [addressMode, selectedAddressId, userAddresses, addressData]);
 
   // Selected date formatted
   const formattedSelectedDate = useMemo(() => {
@@ -383,11 +392,17 @@ export const BookingPage: React.FC<BookingPageProps> = ({
       if (userProfile && addressMode === 'new' && saveAddressToAccount) {
         await addressService.addAddress({
           user_id: userProfile.id,
-          province,
-          ward,
-          street,
-          house_number: houseNumber,
+          province: addressData.province_name,
+          ward: addressData.ward_name,
+          province_code: addressData.province_code,
+          province_name: addressData.province_name,
+          ward_code: addressData.ward_code,
+          ward_name: addressData.ward_name,
+          street: addressData.street,
+          house_number: addressData.house_number,
           full_address: computedFullAddress,
+          latitude: addressData.latitude,
+          longitude: addressData.longitude,
           note: addressNote,
         });
       }
@@ -459,7 +474,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({
   };
 
   return (
-    <div className="pt-20 lg:pt-24 pb-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Header Banner */}
       <div className="mb-6 pb-4 border-b border-[#c1c7d3]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -503,7 +518,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Ví dụ: Nguyễn Văn A"
-                  className="w-full bg-[#f9f9ff] border border-[#c1c7d3]/80 rounded-xl px-3.5 py-2.5 text-sm text-[#141b2b] focus:outline-none focus:border-[#005396] transition-all h-[42px]"
+                  className="w-full bg-[#f9f9ff] border border-[#c1c7d3]/80 rounded-xl px-3.5 py-2.5 text-sm text-[#141b2b] focus:outline-none focus:border-[#005396] transition-all min-h-[46px]"
                 />
               </div>
 
@@ -517,7 +532,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="Ví dụ: 0901234567"
-                  className="w-full bg-[#f9f9ff] border border-[#c1c7d3]/80 rounded-xl px-3.5 py-2.5 text-sm text-[#141b2b] focus:outline-none focus:border-[#005396] transition-all h-[42px]"
+                  className="w-full bg-[#f9f9ff] border border-[#c1c7d3]/80 rounded-xl px-3.5 py-2.5 text-sm text-[#141b2b] focus:outline-none focus:border-[#005396] transition-all min-h-[46px]"
                 />
               </div>
 
@@ -530,7 +545,7 @@ export const BookingPage: React.FC<BookingPageProps> = ({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="nguyenvana@gmail.com"
-                  className="w-full bg-[#f9f9ff] border border-[#c1c7d3]/80 rounded-xl px-3.5 py-2.5 text-sm text-[#141b2b] focus:outline-none focus:border-[#005396] transition-all h-[42px]"
+                  className="w-full bg-[#f9f9ff] border border-[#c1c7d3]/80 rounded-xl px-3.5 py-2.5 text-sm text-[#141b2b] focus:outline-none focus:border-[#005396] transition-all min-h-[46px]"
                 />
               </div>
             </div>
@@ -604,94 +619,28 @@ export const BookingPage: React.FC<BookingPageProps> = ({
                 </div>
               )}
 
-              {/* New Address / Guest Address Input Form */}
+              {/* New Address / Guest Address Input Form with VIETMAP Autocomplete */}
               {(addressMode === 'new' || addressMode === 'guest') && (
-                <div className="bg-[#f8f9ff] p-3.5 rounded-xl border border-[#c1c7d3]/40 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-[#414751] mb-1">
-                        Tỉnh / Thành phố <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={province}
-                        onChange={(e) => setProvince(e.target.value)}
-                        placeholder="TP. Hồ Chí Minh, Hà Nội, Đà Nẵng..."
-                        className="w-full bg-white border border-[#c1c7d3] rounded-lg px-3 py-2 text-xs text-[#141b2b] focus:outline-none focus:border-[#005396]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-[#414751] mb-1">
-                        Phường / Xã / Quận <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={ward}
-                        onChange={(e) => setWard(e.target.value)}
-                        placeholder="Phường Bến Nghé, Quận 1..."
-                        className="w-full bg-white border border-[#c1c7d3] rounded-lg px-3 py-2 text-xs text-[#141b2b] focus:outline-none focus:border-[#005396]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-[#414751] mb-1">
-                        Tên đường / Thôn xóm
-                      </label>
-                      <input
-                        type="text"
-                        value={street}
-                        onChange={(e) => setStreet(e.target.value)}
-                        placeholder="Đường Lê Duẩn..."
-                        className="w-full bg-white border border-[#c1c7d3] rounded-lg px-3 py-2 text-xs text-[#141b2b] focus:outline-none focus:border-[#005396]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-[#414751] mb-1">
-                        Số nhà / Căn hộ
-                      </label>
-                      <input
-                        type="text"
-                        value={houseNumber}
-                        onChange={(e) => setHouseNumber(e.target.value)}
-                        placeholder="Số 123A..."
-                        className="w-full bg-white border border-[#c1c7d3] rounded-lg px-3 py-2 text-xs text-[#141b2b] focus:outline-none focus:border-[#005396]"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-[#414751] mb-1">
-                      Ghi chú vị trí (tầng, mã cửa, v.v.)
-                    </label>
-                    <input
-                      type="text"
-                      value={addressNote}
-                      onChange={(e) => setAddressNote(e.target.value)}
-                      placeholder="Ví dụ: Tầng 3, chung cư HAGL..."
-                      className="w-full bg-white border border-[#c1c7d3] rounded-lg px-3 py-2 text-xs text-[#141b2b] focus:outline-none focus:border-[#005396]"
-                    />
-                  </div>
-
-                  {computedFullAddress && (
-                    <div className="bg-white p-2.5 rounded-lg border border-[#005396]/20 text-xs">
-                      <span className="font-semibold text-[#005396]">Địa chỉ xem trước: </span>
-                      <span className="text-[#141b2b] font-medium">{computedFullAddress}</span>
-                    </div>
-                  )}
+                <div className="bg-[#f8f9ff] p-4 rounded-xl border border-[#c1c7d3]/40 space-y-3.5">
+                  <AddressSelector
+                    value={addressData}
+                    onChange={(updated) => setAddressData(updated)}
+                    showNoteField={true}
+                    noteValue={addressNote}
+                    onNoteChange={(txt) => setAddressNote(txt)}
+                    required={true}
+                    idPrefix="booking_addr"
+                  />
 
                   {userProfile && (
-                    <label className="flex items-center gap-2 cursor-pointer pt-1">
+                    <label className="flex items-center gap-2 cursor-pointer pt-1 border-t border-gray-200/60">
                       <input
                         type="checkbox"
                         checked={saveAddressToAccount}
                         onChange={(e) => setSaveAddressToAccount(e.target.checked)}
                         className="rounded text-[#005396] focus:ring-[#005396]"
                       />
-                      <span className="text-xs text-[#414751] font-medium">Lưu địa chỉ này vào tài khoản của tôi</span>
+                      <span className="text-xs text-[#414751] font-medium">Lưu địa chỉ này vào sổ địa chỉ tài khoản của tôi</span>
                     </label>
                   )}
                 </div>

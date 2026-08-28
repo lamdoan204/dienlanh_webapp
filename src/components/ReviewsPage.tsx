@@ -58,7 +58,7 @@ export const ReviewsPage: React.FC<ReviewsPageProps> = ({ setActiveTab }) => {
   });
 
   return (
-    <div className="pt-24 lg:pt-28 pb-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       {/* Title Header */}
       <div className="mb-8 border-b border-[#c1c7d3]/30 pb-6 text-center sm:text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

@@ -1979,22 +1979,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 {order.assignedWorkers && order.assignedWorkers.length > 0 ? (
                                   <div className="flex flex-col gap-1">
                                     {order.assignedWorkers.map((w) => (
-                                      <div key={w.workerId} className="flex items-center gap-1.5 text-xs font-bold text-[#141b2b]">
-                                        <span className="material-symbols-outlined text-[16px] text-[#005396]">engineering</span>
+                                      <div key={w.workerId} className="text-xs font-bold text-[#141b2b]">
                                         <span>{w.workerName}</span>
-                                        <span className="text-[#d97706] font-extrabold text-[11px] bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/80 inline-flex items-center gap-0.5">
-                                          ⭐ {Number(w.workerStars || 5).toFixed(1)}
-                                        </span>
                                       </div>
                                     ))}
                                   </div>
                                 ) : order.workerId ? (
-                                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#141b2b]">
-                                    <span className="material-symbols-outlined text-[18px] text-[#005396]">engineering</span>
+                                  <div className="text-xs font-bold text-[#141b2b]">
                                     <span>{order.workerName}</span>
-                                    <span className="text-[#d97706] font-extrabold text-[11px] bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200/80 inline-flex items-center gap-0.5">
-                                      ⭐ {Number(order.workerStars || 5).toFixed(1)}
-                                    </span>
                                   </div>
                                 ) : (
                                   <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold italic inline-block">
@@ -2012,30 +2004,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     <span className="material-symbols-outlined text-[16px]">engineering</span>
                                     <span>Giao việc ({order.assignedWorkers?.length || (order.workerId ? 1 : 0)})</span>
                                   </button>
-                                  {order.status !== 'completed' && (
-                                    <button
-                                      onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
-                                      className="bg-green-600 hover:bg-green-700 text-white px-2.5 py-1.5 rounded-xl text-xs font-bold shadow-sm hover:brightness-95 active:scale-95 transition-all whitespace-nowrap cursor-pointer inline-flex items-center gap-1"
-                                      title="Hoàn thành đơn hàng này"
-                                    >
-                                      <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                                      <span>Hoàn thành</span>
-                                    </button>
-                                  )}
                                   <button
                                     onClick={() => handleOpenOrderDetail(order)}
                                     className="bg-[#005396] hover:bg-[#003d70] text-white px-2.5 py-1.5 rounded-xl text-xs font-bold shadow-sm hover:brightness-95 active:scale-95 transition-all whitespace-nowrap cursor-pointer inline-flex items-center gap-1"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">visibility</span>
                                     <span>Chi tiết</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleUpdateOrderStatus(order.id, 'cancelled')}
-                                    className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer inline-flex items-center gap-1"
-                                    title="Hủy & Xóa đơn hàng khỏi CSDL"
-                                  >
-                                    <span className="material-symbols-outlined text-[16px]">delete</span>
-                                    <span>Hủy/Xóa</span>
                                   </button>
                                 </div>
                               </td>
@@ -2095,36 +2069,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <span className="text-xs text-[#717783]">
                               KTV: <strong className="text-[#141b2b]">
                                 {order.assignedWorkers && order.assignedWorkers.length > 0
-                                  ? order.assignedWorkers.map(w => `${w.workerName} (⭐${Number(w.workerStars || 5).toFixed(1)})`).join(', ')
+                                  ? order.assignedWorkers.map(w => w.workerName).join(', ')
                                   : (order.workerName || 'Chưa phân công')}
                               </strong>
                             </span>
                             <div className="flex items-center gap-1.5 ml-auto flex-wrap justify-end">
                               <button
                                 onClick={() => handleOpenAssignModal(order)}
-                                className="bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer"
+                                className="bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
                               >
                                 Giao việc
                               </button>
-                              {order.status !== 'completed' && (
-                                <button
-                                  onClick={() => handleUpdateOrderStatus(order.id, 'completed')}
-                                  className="bg-green-600 hover:bg-green-700 text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer"
-                                >
-                                  Hoàn thành
-                                </button>
-                              )}
                               <button
                                 onClick={() => handleOpenOrderDetail(order)}
-                                className="bg-[#005396] hover:bg-[#003d70] text-white px-2 py-1 rounded-lg text-xs font-bold cursor-pointer"
+                                className="bg-[#005396] hover:bg-[#003d70] text-white px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
                               >
                                 Chi tiết
-                              </button>
-                              <button
-                                onClick={() => handleUpdateOrderStatus(order.id, 'cancelled')}
-                                className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-2 py-1 rounded-lg text-xs font-bold cursor-pointer"
-                              >
-                                Hủy/Xóa
                               </button>
                             </div>
                           </div>

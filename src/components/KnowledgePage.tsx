@@ -181,7 +181,7 @@ export const KnowledgePage: React.FC<KnowledgePageProps> = ({ setActiveTab }) =>
   };
 
   return (
-    <div className="min-h-screen bg-[#f8f9ff] pt-24 sm:pt-28 pb-20 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-[#f8f9ff] pt-36 sm:pt-38 lg:pt-36 pb-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-8">
         {/* DETAIL VIEW MODE */}
         {activeArticle ? (

@@ -103,4 +103,9 @@ export const PROJECT_IMAGES = [
   "/images/i4.jpg",
   "/images/i5.jpg",
   "/images/i6.jpg",
+  "/images/i7.jpeg",
+  "/images/i8.jpeg",
+  "/images/i9.jpeg",
+  "/images/i10.jpeg",
+  "/images/i11.jpeg",
 ];

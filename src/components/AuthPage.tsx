@@ -222,7 +222,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   };
 
   return (
-    <div className="pt-24 lg:pt-28 pb-16 px-4 sm:px-6 flex justify-center min-h-[calc(100vh-200px)] items-center">
+    <div className="pt-36 sm:pt-38 lg:pt-36 pb-16 px-4 sm:px-6 flex justify-center min-h-[calc(100vh-200px)] items-center">
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-[#c1c7d3]/30 w-full max-w-md">
         <div className="text-center mb-8">
           <div className="w-12 h-12 bg-[#005396]/10 text-[#005396] rounded-full flex items-center justify-center mx-auto mb-3">
